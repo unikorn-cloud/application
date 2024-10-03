@@ -32,9 +32,8 @@ type ApplicationSetList struct {
 
 // ApplicationSet defines a Helm application.
 // +genclient
-// +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-// +kubebuilder:resource:scope=Cluster,categories=unikorn
+// +kubebuilder:resource:scope=Namespaced,categories=unikorn
 // +kubebuilder:printcolumn:name="display name",type="string",JSONPath=".metadata.labels['unikorn-cloud\\.org/name']"
 // +kubebuilder:printcolumn:name="age",type="date",JSONPath=".metadata.creationTimestamp"
 type ApplicationSet struct {

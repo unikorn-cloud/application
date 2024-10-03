@@ -17,6 +17,8 @@ spec:
       containers:
       - name: unikorn-application-controller
         image: {{ include "unikorn.applicationControllerImage" . }}
+        args:
+        {{- include "unikorn.core.flags" . | nindent 8 }}
         ports:
         - name: prometheus
           containerPort: 8080

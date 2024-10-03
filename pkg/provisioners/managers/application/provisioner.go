@@ -89,6 +89,8 @@ func (p *Provisioner) Object() unikornv1core.ManagableResourceInterface {
 // getKubernetesClient returns an authenticated context with a client credentials access token
 // and a client.  The context must be used by subseqent API calls in order to extract
 // the access token.
+//
+//nolint:unparam
 func (p *Provisioner) getKubernetesClient(ctx context.Context, traceName string) (context.Context, kubernetesapi.ClientWithResponsesInterface, error) {
 	cli, err := coreclient.ProvisionerClientFromContext(ctx)
 	if err != nil {
@@ -114,22 +116,26 @@ func (p *Provisioner) getKubernetesClient(ctx context.Context, traceName string)
 
 // Provision implements the Provision interface.
 func (p *Provisioner) Provision(ctx context.Context) error {
-	_, _, err := p.getKubernetesClient(ctx, "provision")
+	clientContext, client, err := p.getKubernetesClient(ctx, "provision")
 	if err != nil {
 		return err
 	}
 
 	// TODO: do something!
+	_, _ = clientContext, client
+
 	return nil
 }
 
 // Deprovision implements the Provision interface.
 func (p *Provisioner) Deprovision(ctx context.Context) error {
-	// TODO: do something!
-	_, _, err := p.getKubernetesClient(ctx, "deprovision")
+	clientContext, client, err := p.getKubernetesClient(ctx, "deprovision")
 	if err != nil {
 		return err
 	}
+
+	// TODO: do something!
+	_, _ = clientContext, client
 
 	return nil
 }

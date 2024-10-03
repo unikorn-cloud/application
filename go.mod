@@ -7,13 +7,12 @@ require (
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/oapi-codegen/runtime v1.1.1
 	github.com/spf13/pflag v1.0.5
-	github.com/unikorn-cloud/core v0.1.70
-	github.com/unikorn-cloud/identity v0.2.36
-	github.com/unikorn-cloud/kubernetes v0.2.39
-	github.com/unikorn-cloud/region v0.1.40
+	github.com/unikorn-cloud/core v0.1.73
+	github.com/unikorn-cloud/identity v0.2.40
+	github.com/unikorn-cloud/kubernetes v0.2.40
 	go.opentelemetry.io/otel/sdk v1.29.0
-	k8s.io/api v0.31.0
-	k8s.io/apimachinery v0.31.0
+	k8s.io/api v0.31.1
+	k8s.io/apimachinery v0.31.1
 	sigs.k8s.io/controller-runtime v0.19.0
 )
 
@@ -85,7 +84,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/client-go v0.31.0 // indirect
+	k8s.io/client-go v0.31.1 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20240827152857-f7e401e7b4c2 // indirect
 	k8s.io/utils v0.0.0-20240821151609-f90d01438635 // indirect
@@ -93,5 +92,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
-
-replace github.com/unikorn-cloud/kubernetes => github.com/unikorn-cloud/kubernetes v0.2.40-0.20241002092250-933de246e2e3

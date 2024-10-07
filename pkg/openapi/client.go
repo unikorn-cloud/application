@@ -89,12 +89,12 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
-	// GetApiV1OrganizationsOrganizationIDApplications request
-	GetApiV1OrganizationsOrganizationIDApplications(ctx context.Context, organizationID OrganizationIDParameter, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications request
+	GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications(ctx context.Context, organizationID OrganizationIDParameter, projectID ProjectIDParameter, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
-func (c *Client) GetApiV1OrganizationsOrganizationIDApplications(ctx context.Context, organizationID OrganizationIDParameter, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetApiV1OrganizationsOrganizationIDApplicationsRequest(c.Server, organizationID)
+func (c *Client) GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications(ctx context.Context, organizationID OrganizationIDParameter, projectID ProjectIDParameter, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsRequest(c.Server, organizationID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -105,8 +105,8 @@ func (c *Client) GetApiV1OrganizationsOrganizationIDApplications(ctx context.Con
 	return c.Client.Do(req)
 }
 
-// NewGetApiV1OrganizationsOrganizationIDApplicationsRequest generates requests for GetApiV1OrganizationsOrganizationIDApplications
-func NewGetApiV1OrganizationsOrganizationIDApplicationsRequest(server string, organizationID OrganizationIDParameter) (*http.Request, error) {
+// NewGetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsRequest generates requests for GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications
+func NewGetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsRequest(server string, organizationID OrganizationIDParameter, projectID ProjectIDParameter) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -116,12 +116,19 @@ func NewGetApiV1OrganizationsOrganizationIDApplicationsRequest(server string, or
 		return nil, err
 	}
 
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "projectID", runtime.ParamLocationPath, projectID)
+	if err != nil {
+		return nil, err
+	}
+
 	serverURL, err := url.Parse(server)
 	if err != nil {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/organizations/%s/applications", pathParam0)
+	operationPath := fmt.Sprintf("/api/v1/organizations/%s/projects/%s/applications", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -182,21 +189,21 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
-	// GetApiV1OrganizationsOrganizationIDApplicationsWithResponse request
-	GetApiV1OrganizationsOrganizationIDApplicationsWithResponse(ctx context.Context, organizationID OrganizationIDParameter, reqEditors ...RequestEditorFn) (*GetApiV1OrganizationsOrganizationIDApplicationsResponse, error)
+	// GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsWithResponse request
+	GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsWithResponse(ctx context.Context, organizationID OrganizationIDParameter, projectID ProjectIDParameter, reqEditors ...RequestEditorFn) (*GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsResponse, error)
 }
 
-type GetApiV1OrganizationsOrganizationIDApplicationsResponse struct {
+type GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *ApplicationResponse
+	JSON200      *ApplicationsResponse
 	JSON400      *externalRef0.BadRequestResponse
 	JSON401      *externalRef0.UnauthorizedResponse
 	JSON500      *externalRef0.InternalServerErrorResponse
 }
 
 // Status returns HTTPResponse.Status
-func (r GetApiV1OrganizationsOrganizationIDApplicationsResponse) Status() string {
+func (r GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -204,38 +211,38 @@ func (r GetApiV1OrganizationsOrganizationIDApplicationsResponse) Status() string
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetApiV1OrganizationsOrganizationIDApplicationsResponse) StatusCode() int {
+func (r GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-// GetApiV1OrganizationsOrganizationIDApplicationsWithResponse request returning *GetApiV1OrganizationsOrganizationIDApplicationsResponse
-func (c *ClientWithResponses) GetApiV1OrganizationsOrganizationIDApplicationsWithResponse(ctx context.Context, organizationID OrganizationIDParameter, reqEditors ...RequestEditorFn) (*GetApiV1OrganizationsOrganizationIDApplicationsResponse, error) {
-	rsp, err := c.GetApiV1OrganizationsOrganizationIDApplications(ctx, organizationID, reqEditors...)
+// GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsWithResponse request returning *GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsResponse
+func (c *ClientWithResponses) GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsWithResponse(ctx context.Context, organizationID OrganizationIDParameter, projectID ProjectIDParameter, reqEditors ...RequestEditorFn) (*GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsResponse, error) {
+	rsp, err := c.GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications(ctx, organizationID, projectID, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetApiV1OrganizationsOrganizationIDApplicationsResponse(rsp)
+	return ParseGetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsResponse(rsp)
 }
 
-// ParseGetApiV1OrganizationsOrganizationIDApplicationsResponse parses an HTTP response from a GetApiV1OrganizationsOrganizationIDApplicationsWithResponse call
-func ParseGetApiV1OrganizationsOrganizationIDApplicationsResponse(rsp *http.Response) (*GetApiV1OrganizationsOrganizationIDApplicationsResponse, error) {
+// ParseGetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsResponse parses an HTTP response from a GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsWithResponse call
+func ParseGetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsResponse(rsp *http.Response) (*GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetApiV1OrganizationsOrganizationIDApplicationsResponse{
+	response := &GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicationsResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ApplicationResponse
+		var dest ApplicationsResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

@@ -7,8 +7,8 @@ require (
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/oapi-codegen/runtime v1.1.1
 	github.com/spf13/pflag v1.0.5
-	github.com/unikorn-cloud/core v0.1.73
-	github.com/unikorn-cloud/identity v0.2.40
+	github.com/unikorn-cloud/core v0.1.74
+	github.com/unikorn-cloud/identity v0.2.41
 	github.com/unikorn-cloud/kubernetes v0.2.40
 	go.opentelemetry.io/otel/sdk v1.29.0
 	k8s.io/api v0.31.1

@@ -24,6 +24,8 @@ import (
 	"github.com/unikorn-cloud/application/pkg/server/handler/application"
 	"github.com/unikorn-cloud/core/pkg/server/errors"
 	"github.com/unikorn-cloud/core/pkg/server/util"
+	identityapi "github.com/unikorn-cloud/identity/pkg/openapi"
+	"github.com/unikorn-cloud/identity/pkg/rbac"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -60,7 +62,12 @@ func (h *Handler) setUncacheable(w http.ResponseWriter) {
 	w.Header().Add("Cache-Control", "no-cache")
 }
 
-func (h *Handler) GetApiV1OrganizationsOrganizationIDApplications(w http.ResponseWriter, r *http.Request, organizationID openapi.OrganizationIDParameter) {
+func (h *Handler) GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications(w http.ResponseWriter, r *http.Request, organizationID openapi.OrganizationIDParameter, projectID openapi.ProjectIDParameter) {
+	if err := rbac.AllowProjectScope(r.Context(), "applications", identityapi.Read, organizationID, projectID); err != nil {
+		errors.HandleError(w, r, err)
+		return
+	}
+
 	result, err := application.NewClient(h.client).List(r.Context())
 	if err != nil {
 		errors.HandleError(w, r, err)

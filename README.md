@@ -88,6 +88,21 @@ spec:
 
 The [Unikorn Identity Service](https://github.com/unikorn-cloud/identity) describes how to configure a service organization, groups and role mappings for services that require them.
 
-This service requires asynchronous access to the Unikorn Region API in order to poll cloud identity and physical network status during cluster creation, and delete those resources on cluster deletion.
+This service requires asynchronous access to the Unikorn Kubernetes API in order to poll Kubernetes clusters status during application set creation, and delete those resources on cluster deletion.
 
 This service defines the `unikorn-application` user that will need to be added to a group in the service organization.
+It will need the built in role `application-manager-service` that allows:
+
+* Read access to the `kubernetescluster` endpoints to access kubernetes cluster provisioning status
+
+You can create the necessary group on the CLI in the 'system' organization with the following command available in the Unikorn Identity service repository:
+
+```bash
+kubectl unikorn create group \
+    --namespace unikorn-identity \
+    --organization system \
+    --name kubernetes-services \
+    --description "Services that require access to Kubernetes clusters to manage applications." \
+    --role application-manager-service \
+    --user unikorn-application
+```

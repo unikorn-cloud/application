@@ -15,16 +15,16 @@ import (
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
-	// (GET /api/v1/organizations/{organizationID}/applications)
-	GetApiV1OrganizationsOrganizationIDApplications(w http.ResponseWriter, r *http.Request, organizationID OrganizationIDParameter)
+	// (GET /api/v1/organizations/{organizationID}/projects/{projectID}/applications)
+	GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications(w http.ResponseWriter, r *http.Request, organizationID OrganizationIDParameter, projectID ProjectIDParameter)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
 
-// (GET /api/v1/organizations/{organizationID}/applications)
-func (_ Unimplemented) GetApiV1OrganizationsOrganizationIDApplications(w http.ResponseWriter, r *http.Request, organizationID OrganizationIDParameter) {
+// (GET /api/v1/organizations/{organizationID}/projects/{projectID}/applications)
+func (_ Unimplemented) GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications(w http.ResponseWriter, r *http.Request, organizationID OrganizationIDParameter, projectID ProjectIDParameter) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -37,8 +37,8 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
-// GetApiV1OrganizationsOrganizationIDApplications operation middleware
-func (siw *ServerInterfaceWrapper) GetApiV1OrganizationsOrganizationIDApplications(w http.ResponseWriter, r *http.Request) {
+// GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications operation middleware
+func (siw *ServerInterfaceWrapper) GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var err error
@@ -52,10 +52,19 @@ func (siw *ServerInterfaceWrapper) GetApiV1OrganizationsOrganizationIDApplicatio
 		return
 	}
 
+	// ------------- Path parameter "projectID" -------------
+	var projectID ProjectIDParameter
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "projectID", runtime.ParamLocationPath, chi.URLParam(r, "projectID"), &projectID)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectID", Err: err})
+		return
+	}
+
 	ctx = context.WithValue(ctx, Oauth2AuthenticationScopes, []string{})
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetApiV1OrganizationsOrganizationIDApplications(w, r, organizationID)
+		siw.Handler.GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications(w, r, organizationID, projectID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -179,7 +188,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/organizations/{organizationID}/applications", wrapper.GetApiV1OrganizationsOrganizationIDApplications)
+		r.Get(options.BaseURL+"/api/v1/organizations/{organizationID}/projects/{projectID}/applications", wrapper.GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications)
 	})
 
 	return r

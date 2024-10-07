@@ -7,11 +7,12 @@ info:
     This yields a higher level PaaS solution.
   version: 0.2.0
 paths:
-  /api/v1/organizations/{organizationID}/applications:
+  /api/v1/organizations/{organizationID}/projects/{projectID}/applications:
     x-documentation-group: main
     description: Cluster application services.
     parameters:
     - $ref: '#/components/parameters/organizationIDParameter'
+    - $ref: '#/components/parameters/projectIDParameter'
     get:
       description: |-
         Lists applications available to be installed on clusters.
@@ -19,7 +20,7 @@ paths:
       - oauth2Authentication: []
       responses:
         '200':
-          $ref: '#/components/responses/applicationResponse'
+          $ref: '#/components/responses/applicationsResponse'
         '400':
           $ref: 'https://raw.githubusercontent.com/unikorn-cloud/core/main/pkg/openapi/common.spec.yaml#/components/responses/badRequestResponse'
         '401':
@@ -33,6 +34,14 @@ components:
       in: path
       description: |-
         The organization name.
+      required: true
+      schema:
+        $ref: '#/components/schemas/kubernetesNameParameter'
+    projectIDParameter:
+      name: projectID
+      in: path
+      description: |-
+        The project name.
       required: true
       schema:
         $ref: '#/components/schemas/kubernetesNameParameter'
@@ -129,7 +138,7 @@ components:
       items:
         $ref: '#/components/schemas/applicationRead'
   responses:
-    applicationResponse:
+    applicationsResponse:
       description: A list of available applications.
       content:
         application/json:

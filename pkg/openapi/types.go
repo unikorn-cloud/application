@@ -80,5 +80,8 @@ type KubernetesNameParameter = string
 // OrganizationIDParameter A Kubernetes name. Must be a valid DNS containing only lower case characters, numbers or hyphens, start and end with a character or number, and be at most 63 characters in length.
 type OrganizationIDParameter = KubernetesNameParameter
 
-// ApplicationResponse A list of appications.
-type ApplicationResponse = Applications
+// ProjectIDParameter A Kubernetes name. Must be a valid DNS containing only lower case characters, numbers or hyphens, start and end with a character or number, and be at most 63 characters in length.
+type ProjectIDParameter = KubernetesNameParameter
+
+// ApplicationsResponse A list of appications.
+type ApplicationsResponse = Applications

@@ -47,7 +47,7 @@ func convert(in *unikornv1core.HelmApplication) *openapi.ApplicationRead {
 
 	for _, version := range in.Spec.Versions {
 		v := openapi.ApplicationVersion{
-			Version: *version.Version,
+			Version: version.Version.Original(),
 		}
 
 		if len(version.Dependencies) != 0 {
@@ -55,7 +55,7 @@ func convert(in *unikornv1core.HelmApplication) *openapi.ApplicationRead {
 
 			for _, dependency := range version.Dependencies {
 				deps = append(deps, openapi.ApplicationDependency{
-					Name: *dependency.Name,
+					Name: dependency.Name,
 				})
 			}
 
@@ -67,7 +67,7 @@ func convert(in *unikornv1core.HelmApplication) *openapi.ApplicationRead {
 
 			for _, recommend := range version.Recommends {
 				recommends = append(recommends, openapi.ApplicationDependency{
-					Name: *recommend.Name,
+					Name: recommend.Name,
 				})
 			}
 
@@ -108,9 +108,7 @@ func (c *Client) List(ctx context.Context) ([]*openapi.ApplicationRead, error) {
 		return nil, errors.OAuth2ServerError("failed to list applications").WithError(err)
 	}
 
-	exported := result.Exported()
+	slices.SortStableFunc(result.Items, unikornv1core.CompareHelmApplication)
 
-	slices.SortStableFunc(exported.Items, unikornv1core.CompareHelmApplication)
-
-	return convertList(exported.Items), nil
+	return convertList(result.Items), nil
 }

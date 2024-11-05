@@ -63,7 +63,7 @@ func (h *Handler) setUncacheable(w http.ResponseWriter) {
 }
 
 func (h *Handler) GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplications(w http.ResponseWriter, r *http.Request, organizationID openapi.OrganizationIDParameter, projectID openapi.ProjectIDParameter) {
-	if err := rbac.AllowProjectScope(r.Context(), "applications", identityapi.Read, organizationID, projectID); err != nil {
+	if err := rbac.AllowProjectScope(r.Context(), "application:applications", identityapi.Read, organizationID, projectID); err != nil {
 		errors.HandleError(w, r, err)
 		return
 	}

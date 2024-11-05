@@ -99,14 +99,14 @@ func (p *Provisioner) getKubernetesClient(ctx context.Context, traceName string)
 
 	tokenIssuer := identityclient.NewTokenIssuer(cli, p.options.kubernetesOptions, &p.options.clientOptions, constants.Application, constants.Version)
 
-	ctx, err = tokenIssuer.Context(ctx, traceName)
+	token, err := tokenIssuer.Issue(ctx, traceName)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	getter := kubernetesclient.New(cli, p.options.kubernetesOptions, &p.options.clientOptions)
 
-	client, err := getter.Client(ctx)
+	client, err := getter.Client(ctx, token)
 	if err != nil {
 		return nil, nil, err
 	}

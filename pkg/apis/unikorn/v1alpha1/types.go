@@ -19,10 +19,11 @@ package v1alpha1
 import (
 	unikornv1core "github.com/unikorn-cloud/core/pkg/apis/unikorn/v1alpha1"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ApplicationSetList defines a list of Helm applications.
+// ApplicationSetList defines a list of application sets.
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ApplicationSetList struct {
 	metav1.TypeMeta `json:",inline"`
@@ -30,7 +31,11 @@ type ApplicationSetList struct {
 	Items           []ApplicationSet `json:"items"`
 }
 
-// ApplicationSet defines a Helm application.
+// ApplicationSet defines a set of applications.
+// It works like a normal package manager, installing a package will automatically
+// install any dependencies and recommended packages.  Removeing a package will also
+// remove any dependencies and recoomended packages unless they are kept alive by
+// another package in the set.
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:resource:scope=Namespaced,categories=unikorn
@@ -46,6 +51,15 @@ type ApplicationSet struct {
 type ApplicationSetSpec struct {
 	// Pause, if true, will inhibit reconciliation.
 	Pause bool `json:"pause,omitempty"`
+	// Applications is a list of user requested applications to install.
+	Applications []ApplicationSpec `json:"applications,omitempty"`
+}
+
+type ApplicationSpec struct {
+	// Application is a reference to the typed application.
+	Application corev1.TypedObjectReference `json:"application"`
+	// Version is the version of the application.
+	Version *unikornv1core.SemanticVersion `json:"version,omitempty"`
 }
 
 type ApplicationSetStatus struct {

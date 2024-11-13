@@ -20,13 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"iter"
-	"maps"
 	"slices"
-	"strings"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/spf13/pflag"
+	sat "github.com/spjmurray/go-sat"
 
 	unikornv1 "github.com/unikorn-cloud/application/pkg/apis/unikorn/v1alpha1"
 	"github.com/unikorn-cloud/application/pkg/constants"
@@ -159,182 +156,27 @@ func NewHelmApplicationVersionIterator(application *unikornv1core.HelmApplicatio
 	}
 }
 
-// Graph wraps up our graph of applications, and versions, in
-// a way that is usable by a simple SAT solver.
-type Graph struct {
-	// epochs is a time ordered list of points in time where we have made
-	// "arbitrary" decisions about a package version to include.
-	epochs []*Epoch
-	// epoch is the current epoch index.
-	epoch int
+type Queue[T any] struct {
+	items []T
 }
 
-// Epoch is a point in time where we have made a decision about
-// a package version to use.  If we get to a point where the graph cannot be
-// satisfied this gives us a convenient place to backtrack to an try again with
-// a new version.
-type Epoch struct {
-	// applications defines a set of applications in the graph.
-	applications map[string]*unikornv1core.HelmApplication
-	// dependencies is a count of dependencies an application has.  Those
-	// with zero are considered the roots, thus those to process first.
-	dependencies map[string]int
-	// children records the inverse relationship of application dependencies.
-	// This allows us to walk the graph from root nodes (with no dependencies).
-	children map[string][]string
-	// constraints are any constraints we have attached to an application.
-	// These may either come from the user selecting a specific package version,
-	// a dependency, or a "guess" made by the solver when no prior constraints
-	// were present.  These need to be checked when adding a node to select a
-	// valid version, and when adding new dependency constraints as the node
-	// may have already been added to the graph and conflict with what's newly
-	// required.
-	constraints map[string][]*unikornv1core.SemanticVersionConstraints
-	// versions remembers the selected version of an application.
-	versions map[string]*unikornv1core.HelmApplicationVersion
+func (q *Queue[T]) Empty() bool {
+	return len(q.items) == 0
 }
 
-func NewGraph() *Graph {
-	return &Graph{
-		epochs: []*Epoch{
-			{
-				applications: map[string]*unikornv1core.HelmApplication{},
-				dependencies: map[string]int{},
-				children:     map[string][]string{},
-				constraints:  map[string][]*unikornv1core.SemanticVersionConstraints{},
-				versions:     map[string]*unikornv1core.HelmApplicationVersion{},
-			},
-		},
-		epoch: 0,
-	}
+func (q *Queue[T]) Push(value T) {
+	q.items = append(q.items, value)
 }
 
-// Epoch is a convenience method to access the lastest epoch.
-func (g *Graph) Epoch() *Epoch {
-	return g.epochs[g.epoch]
+func (q *Queue[T]) Pop() T {
+	value := q.items[0]
+	q.items = q.items[1:]
+
+	return value
 }
 
-// Contains checks if the most recent epoch already contains an application.
-func (g *Graph) Contains(id string) bool {
-	_, ok := g.Epoch().applications[id]
-	return ok
-}
-
-// checkConstraints takes a semantic version and checks it against a list of
-// constraints, returning an error if any are violated.
-func checkConstraints(version unikornv1core.SemanticVersion, constraints []*unikornv1core.SemanticVersionConstraints) error {
-	for _, constraint := range constraints {
-		if !constraint.Check(&version) {
-			return fmt.Errorf("%w: version %v does not match constraint %s", ErrConstraint, version.Version, constraint.String())
-		}
-	}
-
-	return nil
-}
-
-type ConstraintsErrors []error
-
-func (e ConstraintsErrors) Error() string {
-	s := make([]string, len(e))
-
-	for i, t := range e {
-		s[i] = t.Error()
-	}
-
-	return strings.Join(s, ", ")
-}
-
-// cmpHelmApplicationVersion provides a compare function to compare Helm application
-// versions based on their semantic versions.
-func cmpHelmApplicationVersion(a, b *unikornv1core.HelmApplicationVersion) int {
-	return a.Version.Compare(&b.Version)
-}
-
-func (g *Graph) Add(a *unikornv1core.HelmApplication) ([]string, error) {
-	if g.Contains(a.Name) {
-		return nil, fmt.Errorf("%w: already encountered %s", ErrGraph, a.Name)
-	}
-
-	var version *unikornv1core.HelmApplicationVersion
-
-	constraints := g.Epoch().constraints[a.Name]
-
-	var errors ConstraintsErrors
-
-	for _, v := range slices.Backward(slices.SortedFunc(a.Versions(), cmpHelmApplicationVersion)) {
-		if err := checkConstraints(v.Version, constraints); err != nil {
-			errors = append(errors, err)
-			continue
-		}
-
-		version = v
-
-		break
-	}
-
-	if version == nil {
-		return nil, errors
-	}
-
-	// For every dependency, add a reverse relationship.
-	dependencies := make([]string, len(version.Dependencies))
-
-	for i, dependency := range version.Dependencies {
-		dependencies[i] = dependency.Name
-
-		if _, ok := g.Epoch().children[dependency.Name]; !ok {
-			g.Epoch().children[dependency.Name] = []string{}
-		}
-
-		g.Epoch().children[dependency.Name] = append(g.Epoch().children[dependency.Name], a.Name)
-	}
-
-	g.Epoch().applications[a.Name] = a
-	g.Epoch().versions[a.Name] = version
-	g.Epoch().dependencies[a.Name] = len(version.Dependencies)
-
-	return dependencies, nil
-}
-
-func (g *Graph) AddConstraints(id string, constraints *unikornv1core.SemanticVersionConstraints) {
-	if constraints == nil {
-		return
-	}
-
-	if _, ok := g.Epoch().constraints[id]; !ok {
-		g.Epoch().constraints[id] = []*unikornv1core.SemanticVersionConstraints{constraints}
-
-		return
-	}
-
-	g.Epoch().constraints[id] = append(g.Epoch().constraints[id], constraints)
-}
-
-func (g *Graph) All() iter.Seq2[*unikornv1core.HelmApplication, *unikornv1core.HelmApplicationVersion] {
-	return func(yield func(*unikornv1core.HelmApplication, *unikornv1core.HelmApplicationVersion) bool) {
-		roots := maps.Clone(g.Epoch().dependencies)
-		maps.DeleteFunc(roots, func(k string, v int) bool { return v != 0 })
-
-		queue := slices.Collect(maps.Keys(roots))
-		seen := map[string]interface{}{}
-
-		for len(queue) > 0 {
-			id := queue[0]
-			queue = queue[1:]
-
-			if _, ok := seen[id]; ok {
-				continue
-			}
-
-			seen[id] = nil
-
-			if !yield(g.Epoch().applications[id], g.Epoch().versions[id]) {
-				return
-			}
-
-			queue = append(queue, g.Epoch().children[id]...)
-		}
-	}
+func varName(applicationID string, version *unikornv1core.SemanticVersion) string {
+	return applicationID + "=" + version.String()
 }
 
 // SolveApplicationSet walks the graph Dykstra style loading in referenced dependencies.
@@ -343,145 +185,121 @@ func (g *Graph) All() iter.Seq2[*unikornv1core.HelmApplication, *unikornv1core.H
 // then we have a conflict, and have to backtrack and try again with another version.
 // Unlike typical SAT solver problems, choosing a different version can have the fun
 // effect of changing its dependencies!
-func SolveApplicationSet(ctx context.Context, client client.Client, namespace string, applicationset *unikornv1.ApplicationSet) (*Graph, error) {
+//
+//nolint:cyclop,gocognit
+func SolveApplicationSet(ctx context.Context, client client.Client, namespace string, applicationset *unikornv1.ApplicationSet) error {
 	applications, err := getApplications(ctx, client, namespace)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	queue := make([]string, 0, len(applicationset.Spec.Applications))
+	solver := sat.NewCDCLSolver()
 
-	g := NewGraph()
+	// Pass 1 is going to do an exhaustive walk of the dependency graph gathering
+	// all application/version tuples as variables, and also create any clauses along the way.
+	queue := Queue[string]{}
 
 	// Populate the work queue with any application IDs that are requested by the
-	// user, we will use them as starting points to populate the rest of the dependencies.
-	// If the user specified a specific version of an application, then add that as a
-	// constraint.
+	// user.
 	for _, ref := range applicationset.Spec.Applications {
-		queue = append(queue, ref.Application.Name)
+		application, ok := applications[ref.Application.Name]
+		if !ok {
+			return fmt.Errorf("%w: requested application %s not in catalog", ErrResourceDependency, ref.Application.Name)
+		}
 
+		queue.Push(ref.Application.Name)
+
+		// Add a unit clause if an application version is specified.
 		if ref.Version != nil {
-			constraints, err := semver.NewConstraint("=" + ref.Version.String())
-			if err != nil {
-				return nil, err
+			// Non existent version asked for.
+			if _, err := application.GetVersion(*ref.Version); err != nil {
+				return err
 			}
 
-			g.AddConstraints(ref.Application.Name, &unikornv1core.SemanticVersionConstraints{
-				Constraints: *constraints,
-			})
-		}
-	}
+			solver.Clause(solver.Literal(varName(ref.Application.Name, ref.Version)))
 
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-
-		if g.Contains(id) {
 			continue
 		}
 
-		application, ok := applications[id]
-		if !ok {
-			return nil, fmt.Errorf("%w: unable to locate application %s", ErrResourceDependency, id)
+		// Otherise we must install at least one version.
+		versions := slices.Collect(application.Versions())
+		if len(versions) == 0 {
+			return fmt.Errorf("%w: requested application %s has no versions", ErrResourceDependency, application.Name)
 		}
 
-		dependencies, err := g.Add(application)
-		if err != nil {
-			return nil, err
+		l := make([]*sat.Literal, 0, len(application.Spec.Versions))
+
+		for _, version := range slices.Backward(slices.Collect(application.Versions())) {
+			l = append(l, solver.Literal(varName(application.Name, &version.Version)))
 		}
 
-		queue = append(queue, dependencies...)
+		solver.Clause(l...)
 	}
 
-	return g, nil
+	visited := map[string]bool{}
+
+	for !queue.Empty() {
+		id := queue.Pop()
+
+		if _, ok := visited[id]; ok {
+			continue
+		}
+
+		visited[id] = true
+
+		application, ok := applications[id]
+		if !ok {
+			return fmt.Errorf("%w: unable to locate application %s", ErrResourceDependency, id)
+		}
+
+		for i, version := range application.Spec.Versions {
+			name := varName(application.Name, &version.Version)
+
+			// Only one version of the application may be installed at any time...
+			// We basically do a permute of all possible combinations and if both
+			// are true, we want a false, so ^(A ^ B) or ^A v ^B.
+			for _, other := range application.Spec.Versions[i+1:] {
+				solver.Clause(solver.NegatedLiteral(name), solver.NegatedLiteral(varName(application.Name, &other.Version)))
+			}
+
+			// Next if an application version is installed, we need to ensure any
+			// dependent applications are also installed, but constrained to the allowed
+			// set for this application.  So A => B v C v D becomes ^A v B v C v D.
+			// This also has the property that if a version has no satisfiable deps e.g.
+			// A => , then it will add a unit clause ^A to ensure it cannot be installed.
+			for _, dependency := range version.Dependencies {
+				dependantApplication := applications[dependency.Name]
+
+				l := []*sat.Literal{
+					solver.NegatedLiteral(name),
+				}
+
+				for _, depVersion := range slices.Backward(slices.Collect(dependantApplication.Versions())) {
+					if dependency.Constraints == nil || dependency.Constraints.Check(&depVersion.Version) {
+						l = append(l, solver.Literal(varName(dependency.Name, &depVersion.Version)))
+					}
+				}
+
+				solver.Clause(l...)
+
+				queue.Push(dependency.Name)
+			}
+		}
+	}
+
+	// Pass 2 does the actual solving...
+	if !solver.Solve(sat.DefaultChooser) {
+		return fmt.Errorf("%w: unsolvable", ErrConstraint)
+	}
+
+	return nil
 }
 
 func GenerateProvisioner(ctx context.Context, client client.Client, namespace string, applicationset *unikornv1.ApplicationSet) (provisioners.Provisioner, error) {
-	g, err := SolveApplicationSet(ctx, client, namespace, applicationset)
+	err := SolveApplicationSet(ctx, client, namespace, applicationset)
 	if err != nil {
 		return nil, err
 	}
-
-	for a := range g.All() {
-		fmt.Println(a)
-	}
-
-	/*
-		// Our root nodes for scheduling are those with no dependencies...
-		roots := maps.Clone(dependencies)
-		maps.DeleteFunc(roots, func(k string, v int) bool { return v != 0 })
-
-		// Back to Dykstra again, we're going to simply walk the graph from the roots
-		// to the leaves, remembering the shortest depth.  We can then process all nodes
-		// at the same depth in parallel, and join those up in series.
-		// NOTE: this is sub-optimal, but good enough for an MVP.
-		queue = slices.Collect(maps.Keys(roots))
-
-		seen := map[string]interface{}{}
-		depths := map[string]int{}
-
-		largestDepth := 0;
-
-		for root := range roots {
-			depths[root] = 0
-		}
-
-		for len(queue) > 0 {
-			id := queue[0]
-			queue = queue[1:]
-
-			// Node visited already...
-			if _, ok := seen[id]; ok {
-				continue
-			}
-
-			seen[id] = true
-
-			for _, child := range children[id] {
-				depth := depths[id] + 1
-				largestDepth = max(largestDepth, depth)
-
-				if _, ok := depths[child]; !ok {
-					depths[child] = depth
-				}
-
-				queue = append(queue, child)
-			}
-		}
-
-		p := make([]provisioners.Provisioner, largestDepth+1)
-
-		for i := range largestDepth + 1 {
-			ids := []string{}
-
-			for id, depth := range depths {
-				if depth != i {
-					continue
-				}
-
-				ids = append(ids, id)
-			}
-
-			apps := make([]provisioners.Provisioner, 0, len(ids))
-
-			for _, id := range ids {
-				ref := &unikornv1core.ApplicationReference{
-					Name: &applications[id].Name,
-					Version: versions[id],
-				}
-
-				getter := func(_ context.Context) (*unikornv1core.ApplicationReference, error) {
-					return ref, nil
-				}
-
-				apps = append(apps, application.New(getter))
-			}
-
-			p[i] = concurrent.New(fmt.Sprintf("concurrent%d", i), apps...)
-		}
-
-		return serial.New("serial0", p...), nil
-	*/
 
 	//nolint:nilnil
 	return nil, nil

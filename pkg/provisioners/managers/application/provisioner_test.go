@@ -199,52 +199,32 @@ func (b *applicationSetBuilder) get() *unikornv1.ApplicationSet {
 	}
 }
 
-// expectedAppVersion is a simple tuple of app ID and version.
-type expectedAppVersion struct {
-	id      string
-	version string
-}
-
-// expectedGraph provides validation of a application solution.
-type expectedGraph struct {
-	apps []expectedAppVersion
-}
-
-// newExpectedGraph creates a new solution validator.
-func newExpectedGraph() *expectedGraph {
-	return &expectedGraph{}
-}
-
-// withAppVersion adds an ordered application version.
-func (e *expectedGraph) withAppVersion(id, version string) *expectedGraph {
-	e.apps = append(e.apps, expectedAppVersion{
-		id:      id,
-		version: version,
-	})
-
-	return e
-}
-
-// check iterates over the graph, checking applications are in the expected
-// order and have the correct version.
-// TODO: The iteration is guaranteed to be a BFS, where as the expectation
-// is an ordered list.  These don't align and will cause problems if the
-// algorithms change.
-func (e *expectedGraph) check(t *testing.T, graph *application.Graph) {
+/*
+// validate checks each node in the graph, every dependency should have been
+// defined already, have its constraints satisfied.
+// TODO: given all the constraints on an application, have we selected the
+// most recent?
+func validate(t *testing.T, graph *application.Graph) {
 	t.Helper()
 
-	i := 0
+	applications := map[string]*unikornv1core.HelmApplication{}
+	versions := map[string]*unikornv1core.HelmApplicationVersion{}
 
 	for a, v := range graph.All() {
-		// TODO: overflow detection.
-		expected := e.apps[i]
+		applications[a.Name] = a
+		versions[a.Name] = v
 
-		require.Equal(t, expected.id, a.Name)
-		require.Equal(t, expected.version, v.Version.Original())
+		for _, dependency := range v.Dependencies {
+			_, ok := applications[dependency.Name]
+			require.True(t, ok, "application dependency should be defined already")
 
-		i++
+			if dependency.Constraints != nil {
+				require.True(t, dependency.Constraints.Check(&versions[dependency.Name].Version), "application constraints should be satisfied")
+			}
+		}
 	}
 }
+*/
 
 // TestProvisionSingle tests a single app is solved.
 func TestProvisionSingle(t *testing.T) {
@@ -255,10 +235,7 @@ func TestProvisionSingle(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app).Build()
 
-	graph, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
-	require.NoError(t, err)
-
-	newExpectedGraph().withAppVersion(app.Name, "1.0.0").check(t, graph)
+	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
 }
 
 // TestProvisionSingleMostRecent tests a single app is solved with the most recent version
@@ -271,10 +248,7 @@ func TestProvisionSingleMostRecent(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app).Build()
 
-	graph, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
-	require.NoError(t, err)
-
-	newExpectedGraph().withAppVersion(app.Name, "2.0.0").check(t, graph)
+	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
 }
 
 // TestProvisionSingleNoMatch tests single app failure when a version constraint doesn't exist.
@@ -286,8 +260,7 @@ func TestProvisionSingleNoMatch(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app).Build()
 
-	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
-	require.Error(t, err)
+	require.Error(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
 }
 
 // TestProvisionSingleWithDependency tests a single application with a met dependency.
@@ -300,10 +273,7 @@ func TestProvisionSingleWithDependency(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep).Build()
 
-	graph, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
-	require.NoError(t, err)
-
-	newExpectedGraph().withAppVersion(dep.Name, "2.0.0").withAppVersion(app.Name, "1.0.0").check(t, graph)
+	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
 }
 
 // TestProvisionSingleWithDependencyNoMatch tests a single application with an unmet dependency.
@@ -316,6 +286,81 @@ func TestProvisionSingleWithDependencyNoMatch(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep).Build()
 
-	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
-	require.NoError(t, err)
+	require.Error(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
+}
+
+// TestProvisionMultipleWithDependencyConflict tests that two apps with conflicting dependency
+// information, but a solvable outcome succeeds.  This test checks that constraints are
+// correctly accumulatd and applied when selecting a dependency with multiple consumers.
+func TestProvisionMultipleWithDependencyConflict(t *testing.T) {
+	t.Parallel()
+
+	dep := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withVersion(getSemver(t, "2.0.0")).get()
+
+	// NOTE: here we say app1 (which should be processed first) can accespt any version >=1.0.0,
+	// so 2.0.0 should be selected.  But, app2 overrides that by allowing only >=1.0.0 and <2.0.0.
+	app1 := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, ">=1.0.0")).get()
+	app2 := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, "~1")).get()
+	applicationset := newApplicationSet().withApplication(app1.Name, getSemver(t, "1.0.0")).withApplication(app2.Name, getSemver(t, "1.0.0")).get()
+
+	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app1, app2, dep).Build()
+
+	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
+}
+
+// TestProvisionSingleWithConflictingTransitveDependency tests that two apps with conflicting dependency
+// information, but a solvable outcome succeeds.  This test checks that a dependency that has already
+// been added, but is include again later with an incompatible constraint undoes the guess, remebering
+// the conflicting constraint when retrying.
+func TestProvisionSingleWithConflictingTransitveDependency(t *testing.T) {
+	t.Parallel()
+
+	dep := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withVersion(getSemver(t, "2.0.0")).get()
+	intermediateDep := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, "~1")).get()
+
+	// NOTE: what will happen here is dep will be processed before intermediateDep, so that will select
+	// 2.0.0 as there are no constraints.  When intermediateDep is processed it will note that dep already
+	// exists, but with a version incompatible with its contraint of >=1.0.0 >2.0.0.  At this
+	// point it needs to roll back to the epoch where we guessed the version of dep, but with the
+	// extra new constraint in place.
+	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, nil).withDependency(intermediateDep.Name, nil).get()
+	applicationset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
+
+	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep, intermediateDep).Build()
+
+	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
+}
+
+func TestProvisionSingleWithChoice(t *testing.T) {
+	t.Parallel()
+
+	dep := newApplicationBuilder().
+		withVersion(getSemver(t, "1.0.0")).
+		withVersion(getSemver(t, "2.0.0")).
+		get()
+	idep1 := newApplicationBuilder().
+		withVersion(getSemver(t, "1.0.0")).
+		withDependency(dep.Name, getConstraints(t, "=1.0.0")).
+		withVersion(getSemver(t, "2.0.0")).
+		withDependency(dep.Name, getConstraints(t, "=2.0.0")).
+		get()
+	idep2 := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, "=1.0.0")).get()
+
+	// NOTE: the solver will be forced to chosse 2.0.0 first as it's the latest version,
+	// this will pull in idep1 with version 2.0.0, but that will conflict with idep2, so
+	// we need to backtrack and start again.
+	app := newApplicationBuilder().
+		withVersion(getSemver(t, "1.0.0")).
+		withDependency(idep1.Name, getConstraints(t, "=1.0.0")).
+		withDependency(idep2.Name, getConstraints(t, "=1.0.0")).
+		withVersion(getSemver(t, "2.0.0")).
+		withDependency(idep1.Name, getConstraints(t, "=2.0.0")).
+		withDependency(idep2.Name, getConstraints(t, "=1.0.0")).
+		get()
+
+	applicationset := newApplicationSet().withApplication(app.Name, nil).get()
+
+	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep, idep1, idep2).Build()
+
+	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
 }

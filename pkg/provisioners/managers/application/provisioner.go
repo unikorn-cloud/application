@@ -175,8 +175,11 @@ func (q *Queue[T]) Pop() T {
 	return value
 }
 
-func varName(applicationID string, version *unikornv1core.SemanticVersion) string {
-	return applicationID + "=" + version.String()
+// AppVersion wraps up applicationID and version tuples in a comparable
+// and easy to use form when interacting with the SAT solver.
+type AppVersion struct {
+	applicationID string
+	version       unikornv1core.SemanticVersion
 }
 
 // SolveApplicationSet walks the graph Dykstra style loading in referenced dependencies.
@@ -187,15 +190,15 @@ func varName(applicationID string, version *unikornv1core.SemanticVersion) strin
 // effect of changing its dependencies!
 //
 //nolint:cyclop,gocognit
-func SolveApplicationSet(ctx context.Context, client client.Client, namespace string, applicationset *unikornv1.ApplicationSet) error {
+func SolveApplicationSet(ctx context.Context, client client.Client, namespace string, applicationset *unikornv1.ApplicationSet) ([]AppVersion, error) {
 	applications, err := getApplications(ctx, client, namespace)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	solver := sat.NewCDCLSolver()
+	solver := sat.NewCDCLSolver[AppVersion]()
 
-	// Pass 1 is going to do an exhaustive walk of the dependency graph gathering
+	// We're going to do an exhaustive walk of the dependency graph gathering
 	// all application/version tuples as variables, and also create any clauses along the way.
 	queue := Queue[string]{}
 
@@ -204,7 +207,7 @@ func SolveApplicationSet(ctx context.Context, client client.Client, namespace st
 	for _, ref := range applicationset.Spec.Applications {
 		application, ok := applications[ref.Application.Name]
 		if !ok {
-			return fmt.Errorf("%w: requested application %s not in catalog", ErrResourceDependency, ref.Application.Name)
+			return nil, fmt.Errorf("%w: requested application %s not in catalog", ErrResourceDependency, ref.Application.Name)
 		}
 
 		queue.Push(ref.Application.Name)
@@ -213,27 +216,30 @@ func SolveApplicationSet(ctx context.Context, client client.Client, namespace st
 		if ref.Version != nil {
 			// Non existent version asked for.
 			if _, err := application.GetVersion(*ref.Version); err != nil {
-				return err
+				return nil, err
 			}
 
-			solver.Clause(solver.Literal(varName(ref.Application.Name, ref.Version)))
+			solver.Unary(AppVersion{ref.Application.Name, *ref.Version})
 
 			continue
 		}
 
 		// Otherise we must install at least one version.
+		// NOTE: we cheat a bit here, when making a choice the solver will pick
+		// the first undefined variable and set it to true, so we implicitly
+		// choose the most recent version by adding them in a descending order.
 		versions := slices.Collect(application.Versions())
 		if len(versions) == 0 {
-			return fmt.Errorf("%w: requested application %s has no versions", ErrResourceDependency, application.Name)
+			return nil, fmt.Errorf("%w: requested application %s has no versions", ErrResourceDependency, application.Name)
 		}
 
-		l := make([]*sat.Literal, 0, len(application.Spec.Versions))
+		l := make([]AppVersion, len(versions))
 
-		for _, version := range slices.Backward(slices.Collect(application.Versions())) {
-			l = append(l, solver.Literal(varName(application.Name, &version.Version)))
+		for i, version := range slices.Backward(versions) {
+			l[i] = AppVersion{application.Name, version.Version}
 		}
 
-		solver.Clause(l...)
+		solver.AtLeastOneOf(l...)
 	}
 
 	visited := map[string]bool{}
@@ -249,54 +255,68 @@ func SolveApplicationSet(ctx context.Context, client client.Client, namespace st
 
 		application, ok := applications[id]
 		if !ok {
-			return fmt.Errorf("%w: unable to locate application %s", ErrResourceDependency, id)
+			return nil, fmt.Errorf("%w: unable to locate application %s", ErrResourceDependency, id)
 		}
 
-		for i, version := range application.Spec.Versions {
-			name := varName(application.Name, &version.Version)
+		appVersions := make([]AppVersion, 0, len(application.Spec.Versions))
 
-			// Only one version of the application may be installed at any time...
-			// We basically do a permute of all possible combinations and if both
-			// are true, we want a false, so ^(A ^ B) or ^A v ^B.
-			for _, other := range application.Spec.Versions[i+1:] {
-				solver.Clause(solver.NegatedLiteral(name), solver.NegatedLiteral(varName(application.Name, &other.Version)))
-			}
+		for version := range application.Versions() {
+			appVersions = append(appVersions, AppVersion{application.Name, version.Version})
+		}
 
-			// Next if an application version is installed, we need to ensure any
-			// dependent applications are also installed, but constrained to the allowed
-			// set for this application.  So A => B v C v D becomes ^A v B v C v D.
-			// This also has the property that if a version has no satisfiable deps e.g.
-			// A => , then it will add a unit clause ^A to ensure it cannot be installed.
+		// Only one version of the application may be installed at any time...
+		solver.AtMostOneOf(appVersions...)
+
+		// Next if an application version is installed, we need to ensure any
+		// dependent applications are also installed, but constrained to the allowed
+		// set for this application. This also has the property that if a version has
+		// no satisfiable deps e.g. then it will add a unary clause that prevents the
+		// version from being used.
+		for version := range application.Versions() {
+			av := AppVersion{application.Name, version.Version}
+
 			for _, dependency := range version.Dependencies {
-				dependantApplication := applications[dependency.Name]
-
-				l := []*sat.Literal{
-					solver.NegatedLiteral(name),
+				dependantApplication, ok := applications[dependency.Name]
+				if !ok {
+					return nil, fmt.Errorf("%w: requested application %s not in catalog", ErrResourceDependency, dependency.Name)
 				}
+
+				depVersions := make([]AppVersion, 0, len(dependantApplication.Spec.Versions))
 
 				for _, depVersion := range slices.Backward(slices.Collect(dependantApplication.Versions())) {
 					if dependency.Constraints == nil || dependency.Constraints.Check(&depVersion.Version) {
-						l = append(l, solver.Literal(varName(dependency.Name, &depVersion.Version)))
+						depVersions = append(depVersions, AppVersion{dependency.Name, depVersion.Version})
 					}
 				}
 
-				solver.Clause(l...)
+				solver.ImpliesAtLeastOneOf(av, depVersions...)
 
-				queue.Push(dependency.Name)
+				if len(depVersions) > 0 {
+					queue.Push(dependency.Name)
+				}
 			}
 		}
 	}
 
-	// Pass 2 does the actual solving...
+	// Solve the problem.
 	if !solver.Solve(sat.DefaultChooser) {
-		return fmt.Errorf("%w: unsolvable", ErrConstraint)
+		return nil, fmt.Errorf("%w: unsolvable", ErrConstraint)
 	}
 
-	return nil
+	// Get the result.
+	result := []AppVersion{}
+
+	for av, b := range solver.Variables() {
+		if b.Value() {
+			result = append(result, av)
+		}
+	}
+
+	return result, nil
 }
 
 func GenerateProvisioner(ctx context.Context, client client.Client, namespace string, applicationset *unikornv1.ApplicationSet) (provisioners.Provisioner, error) {
-	err := SolveApplicationSet(ctx, client, namespace, applicationset)
+	_, err := SolveApplicationSet(ctx, client, namespace, applicationset)
 	if err != nil {
 		return nil, err
 	}

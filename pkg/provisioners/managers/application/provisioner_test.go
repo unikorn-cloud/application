@@ -199,33 +199,6 @@ func (b *applicationSetBuilder) get() *unikornv1.ApplicationSet {
 	}
 }
 
-/*
-// validate checks each node in the graph, every dependency should have been
-// defined already, have its constraints satisfied.
-// TODO: given all the constraints on an application, have we selected the
-// most recent?
-func validate(t *testing.T, graph *application.Graph) {
-	t.Helper()
-
-	applications := map[string]*unikornv1core.HelmApplication{}
-	versions := map[string]*unikornv1core.HelmApplicationVersion{}
-
-	for a, v := range graph.All() {
-		applications[a.Name] = a
-		versions[a.Name] = v
-
-		for _, dependency := range v.Dependencies {
-			_, ok := applications[dependency.Name]
-			require.True(t, ok, "application dependency should be defined already")
-
-			if dependency.Constraints != nil {
-				require.True(t, dependency.Constraints.Check(&versions[dependency.Name].Version), "application constraints should be satisfied")
-			}
-		}
-	}
-}
-*/
-
 // TestProvisionSingle tests a single app is solved.
 func TestProvisionSingle(t *testing.T) {
 	t.Parallel()
@@ -235,7 +208,8 @@ func TestProvisionSingle(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app).Build()
 
-	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
+	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	require.NoError(t, err)
 }
 
 // TestProvisionSingleMostRecent tests a single app is solved with the most recent version
@@ -248,7 +222,8 @@ func TestProvisionSingleMostRecent(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app).Build()
 
-	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
+	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	require.NoError(t, err)
 }
 
 // TestProvisionSingleNoMatch tests single app failure when a version constraint doesn't exist.
@@ -260,7 +235,8 @@ func TestProvisionSingleNoMatch(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app).Build()
 
-	require.Error(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
+	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	require.Error(t, err)
 }
 
 // TestProvisionSingleWithDependency tests a single application with a met dependency.
@@ -273,7 +249,8 @@ func TestProvisionSingleWithDependency(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep).Build()
 
-	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
+	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	require.NoError(t, err)
 }
 
 // TestProvisionSingleWithDependencyNoMatch tests a single application with an unmet dependency.
@@ -286,7 +263,8 @@ func TestProvisionSingleWithDependencyNoMatch(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep).Build()
 
-	require.Error(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
+	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	require.Error(t, err)
 }
 
 // TestProvisionMultipleWithDependencyConflict tests that two apps with conflicting dependency
@@ -305,7 +283,8 @@ func TestProvisionMultipleWithDependencyConflict(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app1, app2, dep).Build()
 
-	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
+	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	require.NoError(t, err)
 }
 
 // TestProvisionSingleWithConflictingTransitveDependency tests that two apps with conflicting dependency
@@ -328,7 +307,8 @@ func TestProvisionSingleWithConflictingTransitveDependency(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep, intermediateDep).Build()
 
-	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
+	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	require.NoError(t, err)
 }
 
 func TestProvisionSingleWithChoice(t *testing.T) {
@@ -362,5 +342,6 @@ func TestProvisionSingleWithChoice(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep, idep1, idep2).Build()
 
-	require.NoError(t, application.SolveApplicationSet(context.Background(), client, namespace, applicationset))
+	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	require.NoError(t, err)
 }

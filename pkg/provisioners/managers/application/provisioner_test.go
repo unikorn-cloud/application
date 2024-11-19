@@ -342,6 +342,18 @@ func TestProvisionSingleWithChoice(t *testing.T) {
 
 	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep, idep1, idep2).Build()
 
-	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	solution, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
 	require.NoError(t, err)
+
+	order, err := application.Schedule(context.Background(), client, namespace, solution)
+	require.NoError(t, err)
+
+	expected := []application.AppVersion{
+		application.NewAppVersion(dep.Name, getSemver(t, "1.0.0")),
+		application.NewAppVersion(idep1.Name, getSemver(t, "1.0.0")),
+		application.NewAppVersion(idep2.Name, getSemver(t, "1.0.0")),
+		application.NewAppVersion(app.Name, getSemver(t, "1.0.0")),
+	}
+
+	require.Equal(t, expected, order)
 }

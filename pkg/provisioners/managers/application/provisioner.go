@@ -175,11 +175,109 @@ func (q *Queue[T]) Pop() T {
 	return value
 }
 
+// GraphVisitor is used to visit a node in the graph.
+type GraphVisitor[T comparable] interface {
+	// Visit is called when a new node is encountered, it accepts
+	// the node itself and an enqueue function.
+	Visit(node T, enqueue func(T)) error
+}
+
+type GraphWalker[T comparable] struct {
+	queue Queue[T]
+	seen  sat.Set[T]
+}
+
+func NewGraphWalker[T comparable]() *GraphWalker[T] {
+	return &GraphWalker[T]{
+		seen: sat.Set[T]{},
+	}
+}
+
+func (g *GraphWalker[T]) Enqueue(t T) {
+	g.queue.Push(t)
+}
+
+func (g *GraphWalker[T]) Walk(visitor GraphVisitor[T]) error {
+	for !g.queue.Empty() {
+		t := g.queue.Pop()
+
+		if g.seen.Has(t) {
+			continue
+		}
+
+		g.seen.Add(t)
+
+		if err := visitor.Visit(t, g.Enqueue); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // AppVersion wraps up applicationID and version tuples in a comparable
 // and easy to use form when interacting with the SAT solver.
 type AppVersion struct {
-	applicationID string
-	version       unikornv1core.SemanticVersion
+	id      string
+	version unikornv1core.SemanticVersion
+}
+
+func NewAppVersion(id string, version *unikornv1core.SemanticVersion) AppVersion {
+	return AppVersion{
+		id:      id,
+		version: *version,
+	}
+}
+
+type solverVisitor struct {
+	applications map[string]*unikornv1core.HelmApplication
+	model        *sat.Model[AppVersion]
+}
+
+func (v *solverVisitor) Visit(id string, enqueue func(string)) error {
+	application, ok := v.applications[id]
+	if !ok {
+		return fmt.Errorf("%w: unable to locate application %s", ErrResourceDependency, id)
+	}
+
+	appVersions := make([]AppVersion, 0, len(application.Spec.Versions))
+
+	for version := range application.Versions() {
+		appVersions = append(appVersions, AppVersion{application.Name, version.Version})
+	}
+
+	// Only one version of the application may be installed at any time...
+	v.model.AtMostOneOf(appVersions...)
+
+	// Next if an application version is installed, we need to ensure any
+	// dependent applications are also installed, but constrained to the allowed
+	// set for this application. This also has the property that if a version has
+	// no satisfiable deps e.g. then it will add a unary clause that prevents the
+	// version from being used.
+	for version := range application.Versions() {
+		av := AppVersion{application.Name, version.Version}
+
+		for _, dependency := range version.Dependencies {
+			dependantApplication, ok := v.applications[dependency.Name]
+			if !ok {
+				return fmt.Errorf("%w: requested application %s not in catalog", ErrResourceDependency, dependency.Name)
+			}
+
+			depVersions := make([]AppVersion, 0, len(dependantApplication.Spec.Versions))
+
+			for _, depVersion := range slices.Backward(slices.Collect(dependantApplication.Versions())) {
+				if dependency.Constraints == nil || dependency.Constraints.Check(&depVersion.Version) {
+					depVersions = append(depVersions, AppVersion{dependency.Name, depVersion.Version})
+				}
+			}
+
+			v.model.ImpliesAtLeastOneOf(av, depVersions...)
+
+			enqueue(dependency.Name)
+		}
+	}
+
+	return nil
 }
 
 // SolveApplicationSet walks the graph Dykstra style loading in referenced dependencies.
@@ -189,28 +287,28 @@ type AppVersion struct {
 // Unlike typical SAT solver problems, choosing a different version can have the fun
 // effect of changing its dependencies!
 //
-//nolint:cyclop,gocognit
-func SolveApplicationSet(ctx context.Context, client client.Client, namespace string, applicationset *unikornv1.ApplicationSet) ([]AppVersion, error) {
+//nolint:cyclop
+func SolveApplicationSet(ctx context.Context, client client.Client, namespace string, applicationset *unikornv1.ApplicationSet) (sat.Set[AppVersion], error) {
 	applications, err := getApplications(ctx, client, namespace)
 	if err != nil {
 		return nil, err
 	}
 
-	solver := sat.NewCDCLSolver[AppVersion]()
-
 	// We're going to do an exhaustive walk of the dependency graph gathering
 	// all application/version tuples as variables, and also create any clauses along the way.
-	queue := Queue[string]{}
+	graph := NewGraphWalker[string]()
+
+	model := sat.NewModel[AppVersion]()
 
 	// Populate the work queue with any application IDs that are requested by the
-	// user.
+	// user and any clauses relevant to the solver.
 	for _, ref := range applicationset.Spec.Applications {
 		application, ok := applications[ref.Application.Name]
 		if !ok {
 			return nil, fmt.Errorf("%w: requested application %s not in catalog", ErrResourceDependency, ref.Application.Name)
 		}
 
-		queue.Push(ref.Application.Name)
+		graph.Enqueue(ref.Application.Name)
 
 		// Add a unit clause if an application version is specified.
 		if ref.Version != nil {
@@ -219,7 +317,7 @@ func SolveApplicationSet(ctx context.Context, client client.Client, namespace st
 				return nil, err
 			}
 
-			solver.Unary(AppVersion{ref.Application.Name, *ref.Version})
+			model.Unary(AppVersion{ref.Application.Name, *ref.Version})
 
 			continue
 		}
@@ -239,90 +337,136 @@ func SolveApplicationSet(ctx context.Context, client client.Client, namespace st
 			l[i] = AppVersion{application.Name, version.Version}
 		}
 
-		solver.AtLeastOneOf(l...)
+		model.AtLeastOneOf(l...)
 	}
 
-	visited := map[string]bool{}
+	// Do the walk.
+	visitor := &solverVisitor{
+		applications: applications,
+		model:        model,
+	}
 
-	for !queue.Empty() {
-		id := queue.Pop()
-
-		if _, ok := visited[id]; ok {
-			continue
-		}
-
-		visited[id] = true
-
-		application, ok := applications[id]
-		if !ok {
-			return nil, fmt.Errorf("%w: unable to locate application %s", ErrResourceDependency, id)
-		}
-
-		appVersions := make([]AppVersion, 0, len(application.Spec.Versions))
-
-		for version := range application.Versions() {
-			appVersions = append(appVersions, AppVersion{application.Name, version.Version})
-		}
-
-		// Only one version of the application may be installed at any time...
-		solver.AtMostOneOf(appVersions...)
-
-		// Next if an application version is installed, we need to ensure any
-		// dependent applications are also installed, but constrained to the allowed
-		// set for this application. This also has the property that if a version has
-		// no satisfiable deps e.g. then it will add a unary clause that prevents the
-		// version from being used.
-		for version := range application.Versions() {
-			av := AppVersion{application.Name, version.Version}
-
-			for _, dependency := range version.Dependencies {
-				dependantApplication, ok := applications[dependency.Name]
-				if !ok {
-					return nil, fmt.Errorf("%w: requested application %s not in catalog", ErrResourceDependency, dependency.Name)
-				}
-
-				depVersions := make([]AppVersion, 0, len(dependantApplication.Spec.Versions))
-
-				for _, depVersion := range slices.Backward(slices.Collect(dependantApplication.Versions())) {
-					if dependency.Constraints == nil || dependency.Constraints.Check(&depVersion.Version) {
-						depVersions = append(depVersions, AppVersion{dependency.Name, depVersion.Version})
-					}
-				}
-
-				solver.ImpliesAtLeastOneOf(av, depVersions...)
-
-				if len(depVersions) > 0 {
-					queue.Push(dependency.Name)
-				}
-			}
-		}
+	if err := graph.Walk(visitor); err != nil {
+		return nil, err
 	}
 
 	// Solve the problem.
-	if !solver.Solve(sat.DefaultChooser) {
-		return nil, fmt.Errorf("%w: unsolvable", ErrConstraint)
+	if err := sat.NewCDCLSolver().Solve(model, sat.DefaultChooser); err != nil {
+		return nil, err
 	}
 
 	// Get the result.
-	result := []AppVersion{}
+	result := sat.Set[AppVersion]{}
 
-	for av, b := range solver.Variables() {
+	for av, b := range model.Variables() {
 		if b.Value() {
-			result = append(result, av)
+			result.Add(av)
 		}
 	}
 
 	return result, nil
 }
 
-func GenerateProvisioner(ctx context.Context, client client.Client, namespace string, applicationset *unikornv1.ApplicationSet) (provisioners.Provisioner, error) {
-	_, err := SolveApplicationSet(ctx, client, namespace, applicationset)
+type schedulerVistor struct {
+	applications map[string]*unikornv1core.HelmApplication
+	appVersions  map[string]AppVersion
+	dependers    map[string][]string
+	seen         sat.Set[string]
+	order        []AppVersion
+}
+
+func (v *schedulerVistor) Visit(av AppVersion, enqueue func(AppVersion)) error {
+	v.seen.Add(av.id)
+
+	v.order = append(v.order, av)
+
+	// Doea anyone depdend on me?
+	if dependers, ok := v.dependers[av.id]; ok {
+		for _, depender := range dependers {
+			dependerAppVersion := v.appVersions[depender]
+
+			application := v.applications[depender]
+
+			version, err := application.GetVersion(dependerAppVersion.version)
+			if err != nil {
+				return err
+			}
+
+			// If all their dependencies are fulfilled, add to the queue.
+			satisfied := true
+
+			for _, dep := range version.Dependencies {
+				if !v.seen.Has(dep.Name) {
+					satisfied = false
+
+					break
+				}
+			}
+
+			if satisfied {
+				enqueue(dependerAppVersion)
+			}
+		}
+	}
+
+	return nil
+}
+
+func Schedule(ctx context.Context, client client.Client, namespace string, solution sat.Set[AppVersion]) ([]AppVersion, error) {
+	applications, err := getApplications(ctx, client, namespace)
 	if err != nil {
 		return nil, err
 	}
 
-	//nolint:nilnil
-	return nil, nil
+	// Okay, we need to build up a reverse map of dependencies and also
+	// record the packages with no dependencies as those will be installed
+	// first.
+	dependers := map[string][]string{}
+	appVersions := map[string]AppVersion{}
+
+	var roots []AppVersion
+
+	for av := range solution.All() {
+		appVersions[av.id] = av
+
+		application := applications[av.id]
+
+		version, err := application.GetVersion(av.version)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(version.Dependencies) == 0 {
+			roots = append(roots, av)
+
+			continue
+		}
+
+		for _, dep := range version.Dependencies {
+			dependers[dep.Name] = append(dependers[dep.Name], av.id)
+		}
+	}
+
+	// Then we need to walk the graph from the roots to the leaves, but only
+	// processing nodes once all their dependencies are satisfied.
+	graph := NewGraphWalker[AppVersion]()
+
+	for _, root := range roots {
+		graph.Enqueue(root)
+	}
+
+	visitor := &schedulerVistor{
+		applications: applications,
+		appVersions:  appVersions,
+		dependers:    dependers,
+		seen:         sat.Set[string]{},
+	}
+
+	if err := graph.Walk(visitor); err != nil {
+		return nil, err
+	}
+
+	return visitor.order, nil
 }
 
 // Provision implements the Provision interface.

@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/spf13/pflag"
 	sat "github.com/spjmurray/go-sat"
@@ -234,6 +233,7 @@ type solverVisitor struct {
 	model        *sat.Model[AppVersion]
 }
 
+//nolint:cyclop
 func (v *solverVisitor) Visit(id string, enqueue func(string)) error {
 	application, ok := v.applications[id]
 	if !ok {
@@ -253,7 +253,8 @@ func (v *solverVisitor) Visit(id string, enqueue func(string)) error {
 	// dependent applications are also installed, but constrained to the allowed
 	// set for this application. This also has the property that if a version has
 	// no satisfiable deps e.g. then it will add a unary clause that prevents the
-	// version from being used.
+	// version from being used.  If a version is installed, it also implies any
+	// recommended packages should be installed too.
 	for version := range application.Versions() {
 		av := AppVersion{application.Name, version.Version}
 
@@ -265,7 +266,7 @@ func (v *solverVisitor) Visit(id string, enqueue func(string)) error {
 
 			depVersions := make([]AppVersion, 0, len(dependantApplication.Spec.Versions))
 
-			for _, depVersion := range slices.Backward(slices.Collect(dependantApplication.Versions())) {
+			for depVersion := range dependantApplication.Versions() {
 				if dependency.Constraints == nil || dependency.Constraints.Check(&depVersion.Version) {
 					depVersions = append(depVersions, AppVersion{dependency.Name, depVersion.Version})
 				}
@@ -274,6 +275,23 @@ func (v *solverVisitor) Visit(id string, enqueue func(string)) error {
 			v.model.ImpliesAtLeastOneOf(av, depVersions...)
 
 			enqueue(dependency.Name)
+		}
+
+		for _, recommendation := range version.Recommends {
+			recommendedApplication, ok := v.applications[recommendation.Name]
+			if !ok {
+				return fmt.Errorf("%w: requested application %s not in catalog", ErrResourceDependency, recommendation.Name)
+			}
+
+			recVersions := make([]AppVersion, 0, len(recommendedApplication.Spec.Versions))
+
+			for recVersion := range recommendedApplication.Versions() {
+				recVersions = append(recVersions, AppVersion{recommendation.Name, recVersion.Version})
+			}
+
+			v.model.ImpliesAtLeastOneOf(av, recVersions...)
+
+			enqueue(recommendation.Name)
 		}
 	}
 
@@ -322,19 +340,10 @@ func SolveApplicationSet(ctx context.Context, client client.Client, namespace st
 			continue
 		}
 
-		// Otherise we must install at least one version.
-		// NOTE: we cheat a bit here, when making a choice the solver will pick
-		// the first undefined variable and set it to true, so we implicitly
-		// choose the most recent version by adding them in a descending order.
-		versions := slices.Collect(application.Versions())
-		if len(versions) == 0 {
-			return nil, fmt.Errorf("%w: requested application %s has no versions", ErrResourceDependency, application.Name)
-		}
+		l := make([]AppVersion, 0, len(application.Spec.Versions))
 
-		l := make([]AppVersion, len(versions))
-
-		for i, version := range slices.Backward(versions) {
-			l[i] = AppVersion{application.Name, version.Version}
+		for version := range application.Versions() {
+			l = append(l, AppVersion{application.Name, version.Version})
 		}
 
 		model.AtLeastOneOf(l...)

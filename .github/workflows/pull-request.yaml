@@ -52,7 +52,7 @@ jobs:
     - name: Build Generated Code
       run: make generate
     - name: Generated Code Checked In
-      run: "[[ -z $(git status --porcelain) ]]"
+      run: "STAT=$(git status --porcelain); echo $STAT; [[ -z ${STAT} ]]"
     - name: Unit Test
       run: make test-unit
     - name: Archive code coverage results

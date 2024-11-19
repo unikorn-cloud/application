@@ -86,15 +86,12 @@ type applicationBuilder struct {
 	versions []*unikornv1core.SemanticVersion
 	// dependencies defines a per-version list of package dependencies.
 	dependencies map[string][]unikornv1core.HelmApplicationDependency
-	// recommendations defines a per-version list of package recommendations.
-	recommendations map[string][]unikornv1core.HelmApplicationRecommendation
 }
 
 // newApplicationBuilder createa a new application builder.
 func newApplicationBuilder() *applicationBuilder {
 	return &applicationBuilder{
-		dependencies:    map[string][]unikornv1core.HelmApplicationDependency{},
-		recommendations: map[string][]unikornv1core.HelmApplicationRecommendation{},
+		dependencies: map[string][]unikornv1core.HelmApplicationDependency{},
 	}
 }
 
@@ -111,17 +108,6 @@ func (b *applicationBuilder) withDependency(id string, constraints *unikornv1cor
 	b.dependencies[b.currVersion] = append(b.dependencies[b.currVersion], unikornv1core.HelmApplicationDependency{
 		Name:        id,
 		Constraints: constraints,
-	})
-
-	return b
-}
-
-// withRecommendation adds a reccomendation to the current version.
-//
-//nolint:unused
-func (b *applicationBuilder) withRecommendation(id string) *applicationBuilder {
-	b.recommendations[b.currVersion] = append(b.recommendations[b.currVersion], unikornv1core.HelmApplicationRecommendation{
-		Name: id,
 	})
 
 	return b
@@ -146,10 +132,6 @@ func (b *applicationBuilder) get() *unikornv1core.HelmApplication {
 
 		if t, ok := b.dependencies[version.Original()]; ok {
 			v.Dependencies = t
-		}
-
-		if t, ok := b.recommendations[version.Original()]; ok {
-			v.Recommends = t
 		}
 
 		app.Spec.Versions[i] = v
@@ -311,6 +293,8 @@ func TestProvisionSingleWithConflictingTransitveDependency(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestProvisionSingleWithChoice makes sure where multiple choices are available
+// and the desirable outcome has a conflict, we satisfy the problem.
 func TestProvisionSingleWithChoice(t *testing.T) {
 	t.Parallel()
 
@@ -348,11 +332,72 @@ func TestProvisionSingleWithChoice(t *testing.T) {
 	order, err := application.Schedule(context.Background(), client, namespace, solution)
 	require.NoError(t, err)
 
+	// TODO: the order of the middle two doesn't really matter as they can be done in
+	// parallel, but it's non-deterministic, so we need a better way of checking this.
+	require.Len(t, order, 4)
+	require.Equal(t, application.NewAppVersion(dep.Name, getSemver(t, "1.0.0")), order[0])
+	require.Equal(t, application.NewAppVersion(app.Name, getSemver(t, "1.0.0")), order[3])
+}
+
+// TestProvisionSingleWithChoiceAndConditionalDependency checks for the "phanom package"
+// problem, where a dependency occurs on a specific version.  The selection heuristic should
+// not install it if it's not explicitly depended upon.
+func TestProvisionSingleWithChoiceAndConditionalDependency(t *testing.T) {
+	t.Parallel()
+
+	dep := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).get()
+	app := newApplicationBuilder().
+		withVersion(getSemver(t, "1.0.0")).
+		withDependency(dep.Name, getConstraints(t, "=1.0.0")).
+		withVersion(getSemver(t, "2.0.0")).
+		get()
+
+	applicationset := newApplicationSet().withApplication(app.Name, nil).get()
+
+	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep).Build()
+	solution, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	require.NoError(t, err)
+
+	order, err := application.Schedule(context.Background(), client, namespace, solution)
+	require.NoError(t, err)
+
 	expected := []application.AppVersion{
-		application.NewAppVersion(dep.Name, getSemver(t, "1.0.0")),
-		application.NewAppVersion(idep1.Name, getSemver(t, "1.0.0")),
-		application.NewAppVersion(idep2.Name, getSemver(t, "1.0.0")),
+		application.NewAppVersion(app.Name, getSemver(t, "2.0.0")),
+	}
+
+	require.Equal(t, expected, order)
+}
+
+// TestProvisionSingleWithRecommendation tests recommendations are correctly picked up
+// and applied.
+func TestProvisionSingleWithRecommendation(t *testing.T) {
+	t.Parallel()
+
+	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).get()
+
+	rec := newApplicationBuilder().
+		withVersion(getSemver(t, "1.0.0")).
+		withDependency(app.Name, getConstraints(t, "=1.0.0")).
+		get()
+
+	app.Spec.Versions[0].Recommends = []unikornv1core.HelmApplicationRecommendation{
+		{
+			Name: rec.Name,
+		},
+	}
+
+	applicationset := newApplicationSet().withApplication(app.Name, nil).get()
+
+	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, rec).Build()
+	solution, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	require.NoError(t, err)
+
+	order, err := application.Schedule(context.Background(), client, namespace, solution)
+	require.NoError(t, err)
+
+	expected := []application.AppVersion{
 		application.NewAppVersion(app.Name, getSemver(t, "1.0.0")),
+		application.NewAppVersion(rec.Name, getSemver(t, "1.0.0")),
 	}
 
 	require.Equal(t, expected, order)

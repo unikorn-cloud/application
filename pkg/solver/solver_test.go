@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package application_test
+package solver_test
 
 import (
 	"context"
@@ -25,25 +25,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	unikornv1 "github.com/unikorn-cloud/application/pkg/apis/unikorn/v1alpha1"
-	"github.com/unikorn-cloud/application/pkg/provisioners/managers/application"
+	"github.com/unikorn-cloud/application/pkg/solver"
 	unikornv1core "github.com/unikorn-cloud/core/pkg/apis/unikorn/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
-
-func scheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
-
-	s := runtime.NewScheme()
-	require.NoError(t, unikornv1.AddToScheme(s))
-	require.NoError(t, unikornv1core.AddToScheme(s))
-
-	return s
-}
 
 const (
 	namespace = "chicken"
@@ -77,8 +64,8 @@ func getConstraints(t *testing.T, constraints string) *unikornv1core.SemanticVer
 	}
 }
 
-// applicationBuilder provides a builder pattern for flexible application creation.
-type applicationBuilder struct {
+// solverBuilder provides a builder pattern for flexible solver creation.
+type solverBuilder struct {
 	// currVersion is a pointer to the current version string.
 	currVersion string
 	// versions is an ordered array of versions.
@@ -88,15 +75,15 @@ type applicationBuilder struct {
 	dependencies map[string][]unikornv1core.HelmApplicationDependency
 }
 
-// newApplicationBuilder createa a new application builder.
-func newApplicationBuilder() *applicationBuilder {
-	return &applicationBuilder{
+// newApplicationBuilder createa a new solver builder.
+func newApplicationBuilder() *solverBuilder {
+	return &solverBuilder{
 		dependencies: map[string][]unikornv1core.HelmApplicationDependency{},
 	}
 }
 
 // withVersion creates a new version and updates the version pointer.
-func (b *applicationBuilder) withVersion(version *unikornv1core.SemanticVersion) *applicationBuilder {
+func (b *solverBuilder) withVersion(version *unikornv1core.SemanticVersion) *solverBuilder {
 	b.currVersion = version.Original()
 	b.versions = append(b.versions, version)
 
@@ -104,7 +91,7 @@ func (b *applicationBuilder) withVersion(version *unikornv1core.SemanticVersion)
 }
 
 // withDependency adds a dependency to the current version.
-func (b *applicationBuilder) withDependency(id string, constraints *unikornv1core.SemanticVersionConstraints) *applicationBuilder {
+func (b *solverBuilder) withDependency(id string, constraints *unikornv1core.SemanticVersionConstraints) *solverBuilder {
 	b.dependencies[b.currVersion] = append(b.dependencies[b.currVersion], unikornv1core.HelmApplicationDependency{
 		Name:        id,
 		Constraints: constraints,
@@ -113,8 +100,8 @@ func (b *applicationBuilder) withDependency(id string, constraints *unikornv1cor
 	return b
 }
 
-// get builds and returns the application resource.
-func (b *applicationBuilder) get() *unikornv1core.HelmApplication {
+// get builds and returns the solver resource.
+func (b *solverBuilder) get() *unikornv1core.HelmApplication {
 	app := &unikornv1core.HelmApplication{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
@@ -140,19 +127,19 @@ func (b *applicationBuilder) get() *unikornv1core.HelmApplication {
 	return app
 }
 
-// applicationSetBuilder provides a builder pattern for application sets.
-type applicationSetBuilder struct {
-	// applications are an ordered list of applications to install.
-	applications []unikornv1.ApplicationSpec
+// solverSetBuilder provides a builder pattern for solver sets.
+type solverSetBuilder struct {
+	// solvers are an ordered list of solvers to install.
+	solvers []unikornv1.ApplicationSpec
 }
 
-// newApplicationSet creates a new application set.
-func newApplicationSet() *applicationSetBuilder {
-	return &applicationSetBuilder{}
+// newApplicationSet creates a new solver set.
+func newApplicationSet() *solverSetBuilder {
+	return &solverSetBuilder{}
 }
 
-// withApplication adds a new application to the application set.
-func (b *applicationSetBuilder) withApplication(id string, version *unikornv1core.SemanticVersion) *applicationSetBuilder {
+// withApplication adds a new solver to the solver set.
+func (b *solverSetBuilder) withApplication(id string, version *unikornv1core.SemanticVersion) *solverSetBuilder {
 	spec := unikornv1.ApplicationSpec{
 		Application: corev1.TypedObjectReference{
 			Kind: unikornv1core.HelmApplicationKind,
@@ -164,21 +151,31 @@ func (b *applicationSetBuilder) withApplication(id string, version *unikornv1cor
 		spec.Version = version
 	}
 
-	b.applications = append(b.applications, spec)
+	b.solvers = append(b.solvers, spec)
 
 	return b
 }
 
-// get returns the application set resource.
-func (b *applicationSetBuilder) get() *unikornv1.ApplicationSet {
+// get returns the solver set resource.
+func (b *solverSetBuilder) get() *unikornv1.ApplicationSet {
 	return &unikornv1.ApplicationSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: uuid.New().String(),
 		},
 		Spec: unikornv1.ApplicationSetSpec{
-			Applications: b.applications,
+			Applications: b.solvers,
 		},
 	}
+}
+
+func newPackageIndex(apps ...*unikornv1core.HelmApplication) map[string]*unikornv1core.HelmApplication {
+	index := map[string]*unikornv1core.HelmApplication{}
+
+	for _, a := range apps {
+		index[a.Name] = a
+	}
+
+	return index
 }
 
 // TestProvisionSingle tests a single app is solved.
@@ -186,11 +183,11 @@ func TestProvisionSingle(t *testing.T) {
 	t.Parallel()
 
 	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).get()
-	applicationset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
+	solverset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
 
-	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app).Build()
+	index := newPackageIndex(app)
 
-	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -200,11 +197,11 @@ func TestProvisionSingleMostRecent(t *testing.T) {
 	t.Parallel()
 
 	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withVersion(getSemver(t, "2.0.0")).get()
-	applicationset := newApplicationSet().withApplication(app.Name, nil).get()
+	solverset := newApplicationSet().withApplication(app.Name, nil).get()
 
-	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app).Build()
+	index := newPackageIndex(app)
 
-	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -213,39 +210,39 @@ func TestProvisionSingleNoMatch(t *testing.T) {
 	t.Parallel()
 
 	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).get()
-	applicationset := newApplicationSet().withApplication(app.Name, getSemver(t, "2.0.0")).get()
+	solverset := newApplicationSet().withApplication(app.Name, getSemver(t, "2.0.0")).get()
 
-	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app).Build()
+	index := newPackageIndex(app)
 
-	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.Error(t, err)
 }
 
-// TestProvisionSingleWithDependency tests a single application with a met dependency.
+// TestProvisionSingleWithDependency tests a single solver with a met dependency.
 func TestProvisionSingleWithDependency(t *testing.T) {
 	t.Parallel()
 
 	dep := newApplicationBuilder().withVersion(getSemver(t, "2.0.0")).get()
 	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, nil).get()
-	applicationset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
+	solverset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
 
-	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep).Build()
+	index := newPackageIndex(app, dep)
 
-	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
-// TestProvisionSingleWithDependencyNoMatch tests a single application with an unmet dependency.
+// TestProvisionSingleWithDependencyNoMatch tests a single solver with an unmet dependency.
 func TestProvisionSingleWithDependencyNoMatch(t *testing.T) {
 	t.Parallel()
 
 	dep := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).get()
 	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, "^2")).get()
-	applicationset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
+	solverset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
 
-	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep).Build()
+	index := newPackageIndex(app, dep)
 
-	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.Error(t, err)
 }
 
@@ -261,11 +258,11 @@ func TestProvisionMultipleWithDependencyConflict(t *testing.T) {
 	// so 2.0.0 should be selected.  But, app2 overrides that by allowing only >=1.0.0 and <2.0.0.
 	app1 := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, ">=1.0.0")).get()
 	app2 := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, "~1")).get()
-	applicationset := newApplicationSet().withApplication(app1.Name, getSemver(t, "1.0.0")).withApplication(app2.Name, getSemver(t, "1.0.0")).get()
+	solverset := newApplicationSet().withApplication(app1.Name, getSemver(t, "1.0.0")).withApplication(app2.Name, getSemver(t, "1.0.0")).get()
 
-	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app1, app2, dep).Build()
+	index := newPackageIndex(app1, app2, dep)
 
-	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -285,11 +282,11 @@ func TestProvisionSingleWithConflictingTransitveDependency(t *testing.T) {
 	// point it needs to roll back to the epoch where we guessed the version of dep, but with the
 	// extra new constraint in place.
 	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, nil).withDependency(intermediateDep.Name, nil).get()
-	applicationset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
+	solverset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
 
-	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep, intermediateDep).Build()
+	index := newPackageIndex(app, dep, intermediateDep)
 
-	_, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -322,21 +319,12 @@ func TestProvisionSingleWithChoice(t *testing.T) {
 		withDependency(idep2.Name, getConstraints(t, "=1.0.0")).
 		get()
 
-	applicationset := newApplicationSet().withApplication(app.Name, nil).get()
+	solverset := newApplicationSet().withApplication(app.Name, nil).get()
 
-	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep, idep1, idep2).Build()
+	index := newPackageIndex(app, dep, idep1, idep2)
 
-	solution, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
-
-	order, err := application.Schedule(context.Background(), client, namespace, solution)
-	require.NoError(t, err)
-
-	// TODO: the order of the middle two doesn't really matter as they can be done in
-	// parallel, but it's non-deterministic, so we need a better way of checking this.
-	require.Len(t, order, 4)
-	require.Equal(t, application.NewAppVersion(dep.Name, getSemver(t, "1.0.0")), order[0])
-	require.Equal(t, application.NewAppVersion(app.Name, getSemver(t, "1.0.0")), order[3])
 }
 
 // TestProvisionSingleWithChoiceAndConditionalDependency checks for the "phanom package"
@@ -352,20 +340,12 @@ func TestProvisionSingleWithChoiceAndConditionalDependency(t *testing.T) {
 		withVersion(getSemver(t, "2.0.0")).
 		get()
 
-	applicationset := newApplicationSet().withApplication(app.Name, nil).get()
+	solverset := newApplicationSet().withApplication(app.Name, nil).get()
 
-	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, dep).Build()
-	solution, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	index := newPackageIndex(app, dep)
+
+	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
-
-	order, err := application.Schedule(context.Background(), client, namespace, solution)
-	require.NoError(t, err)
-
-	expected := []application.AppVersion{
-		application.NewAppVersion(app.Name, getSemver(t, "2.0.0")),
-	}
-
-	require.Equal(t, expected, order)
 }
 
 // TestProvisionSingleWithRecommendation tests recommendations are correctly picked up
@@ -386,19 +366,10 @@ func TestProvisionSingleWithRecommendation(t *testing.T) {
 		},
 	}
 
-	applicationset := newApplicationSet().withApplication(app.Name, nil).get()
+	solverset := newApplicationSet().withApplication(app.Name, nil).get()
 
-	client := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(app, rec).Build()
-	solution, err := application.SolveApplicationSet(context.Background(), client, namespace, applicationset)
+	index := newPackageIndex(app, rec)
+
+	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
-
-	order, err := application.Schedule(context.Background(), client, namespace, solution)
-	require.NoError(t, err)
-
-	expected := []application.AppVersion{
-		application.NewAppVersion(app.Name, getSemver(t, "1.0.0")),
-		application.NewAppVersion(rec.Name, getSemver(t, "1.0.0")),
-	}
-
-	require.Equal(t, expected, order)
 }

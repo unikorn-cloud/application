@@ -11,7 +11,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spjmurray/go-sat v0.3.1
 	github.com/stretchr/testify v1.9.0
-	github.com/unikorn-cloud/core v0.1.80
+	github.com/unikorn-cloud/core v0.1.82
 	github.com/unikorn-cloud/identity v0.2.44
 	github.com/unikorn-cloud/kubernetes v0.2.47
 	go.opentelemetry.io/otel/sdk v1.31.0
@@ -86,7 +86,6 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241015192408-796eee8c2d53 // indirect
 	google.golang.org/grpc v1.67.1 // indirect
 	google.golang.org/protobuf v1.35.1 // indirect
-	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

@@ -32,12 +32,13 @@ type ApplicationSetList struct {
 
 // ApplicationSet defines a set of applications.
 // It works like a normal package manager, installing a package will automatically
-// install any dependencies and recommended packages.  Removeing a package will also
-// remove any dependencies and recoomended packages unless they are kept alive by
+// install any dependencies and recommended packages.  Removing a package will also
+// remove any dependencies and recommended packages unless they are kept alive by
 // another package in the set.
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:resource:scope=Namespaced,categories=unikorn
+// +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="display name",type="string",JSONPath=".metadata.labels['unikorn-cloud\\.org/name']"
 // +kubebuilder:printcolumn:name="age",type="date",JSONPath=".metadata.creationTimestamp"
 type ApplicationSet struct {

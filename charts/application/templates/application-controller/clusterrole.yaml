@@ -7,19 +7,30 @@ metadata:
 rules:
 # Manage applicationsets (my job).
 - apiGroups:
-  - unikorn-cloud.org
+  - application.unikorn-cloud.org
   resources:
   - applicationsets
   verbs:
   - list
   - watch
+  - update
 # Manage applicationsets (my job).
 - apiGroups:
-  - unikorn-cloud.org
+  - application.unikorn-cloud.org
   resources:
   - applicationsets/status
   verbs:
   - update
+# Get Kubernetes clusters so we can provision applications on it.
+- apiGroups:
+  - unikorn-cloud.org
+  resources:
+  - helmapplications
+  - kubernetesclusters
+  - clustermanagers
+  verbs:
+  - list
+  - watch
 # ArgoCD integration.
 - apiGroups:
   - argoproj.io
@@ -40,6 +51,3 @@ rules:
   verbs:
   - list
   - watch
-  - create
-  - patch
-  - delete

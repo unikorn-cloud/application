@@ -25,6 +25,7 @@ spec:
     repo: https://charts.jetstack.io
     chart: cert-manager
     release: cert-manager
+    namespace: cert-manager
     createNamespace: true
     parameters:
     - name: installCRDs
@@ -55,6 +56,7 @@ spec:
   - version: 1.0.0
     repo: https://unikorn-cloud.github.io/helm-addons
     chart: cert-manager-issuers
+    namespace: cert-manager
     dependencies:
     - name: cert-manager
 ---
@@ -79,6 +81,7 @@ spec:
   - version: 4.8.0
     repo: https://kubernetes.github.io/ingress-nginx
     chart: ingress-nginx
+    namespace: ingress-nginx
     createNamespace: true
     parameters:
     - name: controller.kind
@@ -110,6 +113,8 @@ spec:
   - version: 6.0.8
     repo: https://kubernetes.github.io/dashboard
     chart: kubernetes-dashboard
+    namespace: kubernetes-dashboard
+    createNamespace: true
     interface: 1.0.0
     dependencies:
     - name: cert-manager
@@ -139,6 +144,7 @@ spec:
   - version: 1.5.3
     repo: https://charts.longhorn.io
     chart: longhorn
+    namespace: longhorn
     createNamespace: true
     parameters:
     - name: defaultSettings.kubernetesClusterAutoscalerEnabled
@@ -172,6 +178,7 @@ spec:
   - version: 50.2.0
     repo: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
+    namespace: prometheus
     createNamespace: true
     serverSideApply: true
     parameters:

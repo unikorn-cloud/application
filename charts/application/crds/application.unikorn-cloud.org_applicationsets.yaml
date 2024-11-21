@@ -29,8 +29,8 @@ spec:
         description: |-
           ApplicationSet defines a set of applications.
           It works like a normal package manager, installing a package will automatically
-          install any dependencies and recommended packages.  Removeing a package will also
-          remove any dependencies and recoomended packages unless they are kept alive by
+          install any dependencies and recommended packages.  Removing a package will also
+          remove any dependencies and recommended packages unless they are kept alive by
           another package in the set.
         properties:
           apiVersion:
@@ -126,4 +126,5 @@ spec:
         type: object
     served: true
     storage: true
-    subresources: {}
+    subresources:
+      status: {}

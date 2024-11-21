@@ -25,6 +25,7 @@ import (
 
 	unikornv1 "github.com/unikorn-cloud/application/pkg/apis/unikorn/v1alpha1"
 	unikornv1core "github.com/unikorn-cloud/core/pkg/apis/unikorn/v1alpha1"
+	"github.com/unikorn-cloud/core/pkg/constants"
 )
 
 var (
@@ -36,19 +37,6 @@ var (
 
 	ErrConstraint = errors.New("constraint error")
 )
-
-// HelmApplicationVersionIterator simplifies iteration over application
-// versions and returns an ordered list (newest to oldest), of semantic
-// versions.
-type HelmApplicationVersionIterator struct {
-	application *unikornv1core.HelmApplication
-}
-
-func NewHelmApplicationVersionIterator(application *unikornv1core.HelmApplication) *HelmApplicationVersionIterator {
-	return &HelmApplicationVersionIterator{
-		application: application,
-	}
-}
 
 type Queue[T any] struct {
 	items []T
@@ -112,33 +100,63 @@ func (g *GraphWalker[T]) Walk(visitor GraphVisitor[T]) error {
 // AppVersion wraps up applicationID and version tuples in a comparable
 // and easy to use form when interacting with the SAT solver.
 type AppVersion struct {
-	ID      string
+	Name    string
 	Version unikornv1core.SemanticVersion
 }
 
-func NewAppVersion(id string, version unikornv1core.SemanticVersion) AppVersion {
+func NewAppVersion(name string, version unikornv1core.SemanticVersion) AppVersion {
 	return AppVersion{
-		ID:      id,
+		Name:    name,
 		Version: version,
 	}
 }
 
+type ApplicationIndex map[string]*unikornv1core.HelmApplication
+
+func NewApplicationIndex(applications ...*unikornv1core.HelmApplication) (ApplicationIndex, error) {
+	index := ApplicationIndex{}
+
+	for _, application := range applications {
+		if application.Labels == nil {
+			return nil, fmt.Errorf("%w: application ID %s has no labels", ErrResourceDependency, application.Name)
+		}
+
+		name, ok := application.Labels[constants.NameLabel]
+		if !ok {
+			return nil, fmt.Errorf("%w: application ID %s has no name", ErrResourceDependency, application.Name)
+		}
+
+		index[name] = application
+	}
+
+	return index, nil
+}
+
+func (i ApplicationIndex) Get(name string) (*unikornv1core.HelmApplication, error) {
+	application, ok := i[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: unable to locate application %s", ErrResourceDependency, name)
+	}
+
+	return application, nil
+}
+
 type solverVisitor struct {
-	applications map[string]*unikornv1core.HelmApplication
+	applications ApplicationIndex
 	model        *sat.Model[AppVersion]
 }
 
 //nolint:cyclop
-func (v *solverVisitor) Visit(id string, enqueue func(string)) error {
-	application, ok := v.applications[id]
-	if !ok {
-		return fmt.Errorf("%w: unable to locate application %s", ErrResourceDependency, id)
+func (v *solverVisitor) Visit(name string, enqueue func(string)) error {
+	application, err := v.applications.Get(name)
+	if err != nil {
+		return err
 	}
 
 	appVersions := make([]AppVersion, 0, len(application.Spec.Versions))
 
 	for version := range application.Versions() {
-		appVersions = append(appVersions, NewAppVersion(application.Name, version.Version))
+		appVersions = append(appVersions, NewAppVersion(name, version.Version))
 	}
 
 	// Only one version of the application may be installed at any time...
@@ -151,12 +169,12 @@ func (v *solverVisitor) Visit(id string, enqueue func(string)) error {
 	// version from being used.  If a version is installed, it also implies any
 	// recommended packages should be installed too.
 	for version := range application.Versions() {
-		av := NewAppVersion(application.Name, version.Version)
+		av := NewAppVersion(name, version.Version)
 
 		for _, dependency := range version.Dependencies {
-			dependantApplication, ok := v.applications[dependency.Name]
-			if !ok {
-				return fmt.Errorf("%w: requested application %s not in catalog", ErrResourceDependency, dependency.Name)
+			dependantApplication, err := v.applications.Get(dependency.Name)
+			if err != nil {
+				return err
 			}
 
 			depVersions := make([]AppVersion, 0, len(dependantApplication.Spec.Versions))
@@ -173,9 +191,9 @@ func (v *solverVisitor) Visit(id string, enqueue func(string)) error {
 		}
 
 		for _, recommendation := range version.Recommends {
-			recommendedApplication, ok := v.applications[recommendation.Name]
-			if !ok {
-				return fmt.Errorf("%w: requested application %s not in catalog", ErrResourceDependency, recommendation.Name)
+			recommendedApplication, err := v.applications.Get(recommendation.Name)
+			if err != nil {
+				return err
 			}
 
 			recVersions := make([]AppVersion, 0, len(recommendedApplication.Spec.Versions))
@@ -199,7 +217,7 @@ func (v *solverVisitor) Visit(id string, enqueue func(string)) error {
 // then we have a conflict, and have to backtrack and try again with another version.
 // Unlike typical SAT solver problems, choosing a different version can have the fun
 // effect of changing its dependencies!
-func SolveApplicationSet(ctx context.Context, applications map[string]*unikornv1core.HelmApplication, applicationset *unikornv1.ApplicationSet) (sat.Set[AppVersion], error) {
+func SolveApplicationSet(ctx context.Context, applications ApplicationIndex, applicationset *unikornv1.ApplicationSet) (sat.Set[AppVersion], error) {
 	// We're going to do an exhaustive walk of the dependency graph gathering
 	// all application/version tuples as variables, and also create any clauses along the way.
 	graph := NewGraphWalker[string]()
@@ -209,12 +227,12 @@ func SolveApplicationSet(ctx context.Context, applications map[string]*unikornv1
 	// Populate the work queue with any application IDs that are requested by the
 	// user and any clauses relevant to the solver.
 	for _, ref := range applicationset.Spec.Applications {
-		application, ok := applications[ref.Application.Name]
-		if !ok {
-			return nil, fmt.Errorf("%w: requested application %s not in catalog", ErrResourceDependency, ref.Application.Name)
+		application, err := applications.Get(ref.Name)
+		if err != nil {
+			return nil, err
 		}
 
-		graph.Enqueue(ref.Application.Name)
+		graph.Enqueue(ref.Name)
 
 		// Add a unit clause if an application version is specified.
 		if ref.Version != nil {
@@ -223,7 +241,7 @@ func SolveApplicationSet(ctx context.Context, applications map[string]*unikornv1
 				return nil, err
 			}
 
-			model.Unary(NewAppVersion(ref.Application.Name, *ref.Version))
+			model.Unary(NewAppVersion(ref.Name, *ref.Version))
 
 			continue
 		}
@@ -231,7 +249,7 @@ func SolveApplicationSet(ctx context.Context, applications map[string]*unikornv1
 		l := make([]AppVersion, 0, len(application.Spec.Versions))
 
 		for version := range application.Versions() {
-			l = append(l, NewAppVersion(application.Name, version.Version))
+			l = append(l, NewAppVersion(ref.Name, version.Version))
 		}
 
 		model.AtLeastOneOf(l...)

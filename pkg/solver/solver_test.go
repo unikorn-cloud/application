@@ -27,8 +27,8 @@ import (
 	unikornv1 "github.com/unikorn-cloud/application/pkg/apis/unikorn/v1alpha1"
 	"github.com/unikorn-cloud/application/pkg/solver"
 	unikornv1core "github.com/unikorn-cloud/core/pkg/apis/unikorn/v1alpha1"
+	"github.com/unikorn-cloud/core/pkg/constants"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -64,8 +64,10 @@ func getConstraints(t *testing.T, constraints string) *unikornv1core.SemanticVer
 	}
 }
 
-// solverBuilder provides a builder pattern for flexible solver creation.
-type solverBuilder struct {
+// applicationBuilder provides a builder pattern for flexible solver creation.
+type applicationBuilder struct {
+	// name of the application.
+	name string
 	// currVersion is a pointer to the current version string.
 	currVersion string
 	// versions is an ordered array of versions.
@@ -73,17 +75,20 @@ type solverBuilder struct {
 	versions []*unikornv1core.SemanticVersion
 	// dependencies defines a per-version list of package dependencies.
 	dependencies map[string][]unikornv1core.HelmApplicationDependency
+	// recommendations defines a per-version list of recommended packages.
+	recommendations []unikornv1core.HelmApplicationRecommendation
 }
 
 // newApplicationBuilder createa a new solver builder.
-func newApplicationBuilder() *solverBuilder {
-	return &solverBuilder{
+func newApplicationBuilder(name string) *applicationBuilder {
+	return &applicationBuilder{
+		name:         name,
 		dependencies: map[string][]unikornv1core.HelmApplicationDependency{},
 	}
 }
 
 // withVersion creates a new version and updates the version pointer.
-func (b *solverBuilder) withVersion(version *unikornv1core.SemanticVersion) *solverBuilder {
+func (b *applicationBuilder) withVersion(version *unikornv1core.SemanticVersion) *applicationBuilder {
 	b.currVersion = version.Original()
 	b.versions = append(b.versions, version)
 
@@ -91,21 +96,32 @@ func (b *solverBuilder) withVersion(version *unikornv1core.SemanticVersion) *sol
 }
 
 // withDependency adds a dependency to the current version.
-func (b *solverBuilder) withDependency(id string, constraints *unikornv1core.SemanticVersionConstraints) *solverBuilder {
+func (b *applicationBuilder) withDependency(name string, constraints *unikornv1core.SemanticVersionConstraints) *applicationBuilder {
 	b.dependencies[b.currVersion] = append(b.dependencies[b.currVersion], unikornv1core.HelmApplicationDependency{
-		Name:        id,
+		Name:        name,
 		Constraints: constraints,
 	})
 
 	return b
 }
 
+func (b *applicationBuilder) withRecommendation(name string) *applicationBuilder {
+	b.recommendations = append(b.recommendations, unikornv1core.HelmApplicationRecommendation{
+		Name: name,
+	})
+
+	return b
+}
+
 // get builds and returns the solver resource.
-func (b *solverBuilder) get() *unikornv1core.HelmApplication {
+func (b *applicationBuilder) get() *unikornv1core.HelmApplication {
 	app := &unikornv1core.HelmApplication{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
 			Name:      uuid.New().String(),
+			Labels: map[string]string{
+				constants.NameLabel: b.name,
+			},
 		},
 		Spec: unikornv1core.HelmApplicationSpec{
 			Versions: make([]unikornv1core.HelmApplicationVersion, len(b.versions)),
@@ -114,7 +130,8 @@ func (b *solverBuilder) get() *unikornv1core.HelmApplication {
 
 	for i, version := range b.versions {
 		v := unikornv1core.HelmApplicationVersion{
-			Version: *version,
+			Version:    *version,
+			Recommends: b.recommendations,
 		}
 
 		if t, ok := b.dependencies[version.Original()]; ok {
@@ -127,24 +144,21 @@ func (b *solverBuilder) get() *unikornv1core.HelmApplication {
 	return app
 }
 
-// solverSetBuilder provides a builder pattern for solver sets.
-type solverSetBuilder struct {
+// applicationSetBuilder provides a builder pattern for solver sets.
+type applicationSetBuilder struct {
 	// solvers are an ordered list of solvers to install.
 	solvers []unikornv1.ApplicationSpec
 }
 
 // newApplicationSet creates a new solver set.
-func newApplicationSet() *solverSetBuilder {
-	return &solverSetBuilder{}
+func newApplicationSet() *applicationSetBuilder {
+	return &applicationSetBuilder{}
 }
 
 // withApplication adds a new solver to the solver set.
-func (b *solverSetBuilder) withApplication(id string, version *unikornv1core.SemanticVersion) *solverSetBuilder {
+func (b *applicationSetBuilder) withApplication(name string, version *unikornv1core.SemanticVersion) *applicationSetBuilder {
 	spec := unikornv1.ApplicationSpec{
-		Application: corev1.TypedObjectReference{
-			Kind: unikornv1core.HelmApplicationKind,
-			Name: id,
-		},
+		Name: name,
 	}
 
 	if version != nil {
@@ -157,7 +171,7 @@ func (b *solverSetBuilder) withApplication(id string, version *unikornv1core.Sem
 }
 
 // get returns the solver set resource.
-func (b *solverSetBuilder) get() *unikornv1.ApplicationSet {
+func (b *applicationSetBuilder) get() *unikornv1.ApplicationSet {
 	return &unikornv1.ApplicationSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: uuid.New().String(),
@@ -168,26 +182,17 @@ func (b *solverSetBuilder) get() *unikornv1.ApplicationSet {
 	}
 }
 
-func newPackageIndex(apps ...*unikornv1core.HelmApplication) map[string]*unikornv1core.HelmApplication {
-	index := map[string]*unikornv1core.HelmApplication{}
-
-	for _, a := range apps {
-		index[a.Name] = a
-	}
-
-	return index
-}
-
 // TestProvisionSingle tests a single app is solved.
 func TestProvisionSingle(t *testing.T) {
 	t.Parallel()
 
-	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).get()
-	solverset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
+	app := newApplicationBuilder("app").withVersion(getSemver(t, "1.0.0")).get()
+	solverset := newApplicationSet().withApplication("app", getSemver(t, "1.0.0")).get()
 
-	index := newPackageIndex(app)
+	index, err := solver.NewApplicationIndex(app)
+	require.NoError(t, err)
 
-	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -196,12 +201,13 @@ func TestProvisionSingle(t *testing.T) {
 func TestProvisionSingleMostRecent(t *testing.T) {
 	t.Parallel()
 
-	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withVersion(getSemver(t, "2.0.0")).get()
-	solverset := newApplicationSet().withApplication(app.Name, nil).get()
+	app := newApplicationBuilder("app").withVersion(getSemver(t, "1.0.0")).withVersion(getSemver(t, "2.0.0")).get()
+	solverset := newApplicationSet().withApplication("app", nil).get()
 
-	index := newPackageIndex(app)
+	index, err := solver.NewApplicationIndex(app)
+	require.NoError(t, err)
 
-	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -209,12 +215,13 @@ func TestProvisionSingleMostRecent(t *testing.T) {
 func TestProvisionSingleNoMatch(t *testing.T) {
 	t.Parallel()
 
-	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).get()
-	solverset := newApplicationSet().withApplication(app.Name, getSemver(t, "2.0.0")).get()
+	app := newApplicationBuilder("app").withVersion(getSemver(t, "1.0.0")).get()
+	solverset := newApplicationSet().withApplication("app", getSemver(t, "2.0.0")).get()
 
-	index := newPackageIndex(app)
+	index, err := solver.NewApplicationIndex(app)
+	require.NoError(t, err)
 
-	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.Error(t, err)
 }
 
@@ -222,13 +229,14 @@ func TestProvisionSingleNoMatch(t *testing.T) {
 func TestProvisionSingleWithDependency(t *testing.T) {
 	t.Parallel()
 
-	dep := newApplicationBuilder().withVersion(getSemver(t, "2.0.0")).get()
-	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, nil).get()
-	solverset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
+	dep := newApplicationBuilder("dep").withVersion(getSemver(t, "2.0.0")).get()
+	app := newApplicationBuilder("app").withVersion(getSemver(t, "1.0.0")).withDependency("dep", nil).get()
+	solverset := newApplicationSet().withApplication("app", getSemver(t, "1.0.0")).get()
 
-	index := newPackageIndex(app, dep)
+	index, err := solver.NewApplicationIndex(app, dep)
+	require.NoError(t, err)
 
-	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -236,13 +244,14 @@ func TestProvisionSingleWithDependency(t *testing.T) {
 func TestProvisionSingleWithDependencyNoMatch(t *testing.T) {
 	t.Parallel()
 
-	dep := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).get()
-	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, "^2")).get()
-	solverset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
+	dep := newApplicationBuilder("dep").withVersion(getSemver(t, "1.0.0")).get()
+	app := newApplicationBuilder("app").withVersion(getSemver(t, "1.0.0")).withDependency("dep", getConstraints(t, "^2")).get()
+	solverset := newApplicationSet().withApplication("app", getSemver(t, "1.0.0")).get()
 
-	index := newPackageIndex(app, dep)
+	index, err := solver.NewApplicationIndex(app, dep)
+	require.NoError(t, err)
 
-	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.Error(t, err)
 }
 
@@ -252,17 +261,18 @@ func TestProvisionSingleWithDependencyNoMatch(t *testing.T) {
 func TestProvisionMultipleWithDependencyConflict(t *testing.T) {
 	t.Parallel()
 
-	dep := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withVersion(getSemver(t, "2.0.0")).get()
+	dep := newApplicationBuilder("dep").withVersion(getSemver(t, "1.0.0")).withVersion(getSemver(t, "2.0.0")).get()
 
 	// NOTE: here we say app1 (which should be processed first) can accespt any version >=1.0.0,
 	// so 2.0.0 should be selected.  But, app2 overrides that by allowing only >=1.0.0 and <2.0.0.
-	app1 := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, ">=1.0.0")).get()
-	app2 := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, "~1")).get()
-	solverset := newApplicationSet().withApplication(app1.Name, getSemver(t, "1.0.0")).withApplication(app2.Name, getSemver(t, "1.0.0")).get()
+	app1 := newApplicationBuilder("app-1").withVersion(getSemver(t, "1.0.0")).withDependency("dep", getConstraints(t, ">=1.0.0")).get()
+	app2 := newApplicationBuilder("app-2").withVersion(getSemver(t, "1.0.0")).withDependency("dep", getConstraints(t, "~1")).get()
+	solverset := newApplicationSet().withApplication("app-1", getSemver(t, "1.0.0")).withApplication("app-2", getSemver(t, "1.0.0")).get()
 
-	index := newPackageIndex(app1, app2, dep)
+	index, err := solver.NewApplicationIndex(app1, app2, dep)
+	require.NoError(t, err)
 
-	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -273,20 +283,21 @@ func TestProvisionMultipleWithDependencyConflict(t *testing.T) {
 func TestProvisionSingleWithConflictingTransitveDependency(t *testing.T) {
 	t.Parallel()
 
-	dep := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withVersion(getSemver(t, "2.0.0")).get()
-	intermediateDep := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, "~1")).get()
+	dep := newApplicationBuilder("dep").withVersion(getSemver(t, "1.0.0")).withVersion(getSemver(t, "2.0.0")).get()
+	intermediateDep := newApplicationBuilder("intermediate-dep").withVersion(getSemver(t, "1.0.0")).withDependency("dep", getConstraints(t, "~1")).get()
 
 	// NOTE: what will happen here is dep will be processed before intermediateDep, so that will select
 	// 2.0.0 as there are no constraints.  When intermediateDep is processed it will note that dep already
 	// exists, but with a version incompatible with its contraint of >=1.0.0 >2.0.0.  At this
 	// point it needs to roll back to the epoch where we guessed the version of dep, but with the
 	// extra new constraint in place.
-	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, nil).withDependency(intermediateDep.Name, nil).get()
-	solverset := newApplicationSet().withApplication(app.Name, getSemver(t, "1.0.0")).get()
+	app := newApplicationBuilder("app").withVersion(getSemver(t, "1.0.0")).withDependency("dep", nil).withDependency("intermediate-dep", nil).get()
+	solverset := newApplicationSet().withApplication("app", getSemver(t, "1.0.0")).get()
 
-	index := newPackageIndex(app, dep, intermediateDep)
+	index, err := solver.NewApplicationIndex(app, dep, intermediateDep)
+	require.NoError(t, err)
 
-	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -295,35 +306,38 @@ func TestProvisionSingleWithConflictingTransitveDependency(t *testing.T) {
 func TestProvisionSingleWithChoice(t *testing.T) {
 	t.Parallel()
 
-	dep := newApplicationBuilder().
+	dep := newApplicationBuilder("dep").
 		withVersion(getSemver(t, "1.0.0")).
 		withVersion(getSemver(t, "2.0.0")).
 		get()
-	idep1 := newApplicationBuilder().
+	idep1 := newApplicationBuilder("intermediate-dep-1").
 		withVersion(getSemver(t, "1.0.0")).
-		withDependency(dep.Name, getConstraints(t, "=1.0.0")).
+		withDependency("dep", getConstraints(t, "=1.0.0")).
 		withVersion(getSemver(t, "2.0.0")).
-		withDependency(dep.Name, getConstraints(t, "=2.0.0")).
+		withDependency("dep", getConstraints(t, "=2.0.0")).
 		get()
-	idep2 := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).withDependency(dep.Name, getConstraints(t, "=1.0.0")).get()
+	idep2 := newApplicationBuilder("intermediate-dep-2").
+		withVersion(getSemver(t, "1.0.0")).
+		withDependency("dep", getConstraints(t, "=1.0.0")).get()
 
 	// NOTE: the solver will be forced to chosse 2.0.0 first as it's the latest version,
 	// this will pull in idep1 with version 2.0.0, but that will conflict with idep2, so
 	// we need to backtrack and start again.
-	app := newApplicationBuilder().
+	app := newApplicationBuilder("app").
 		withVersion(getSemver(t, "1.0.0")).
-		withDependency(idep1.Name, getConstraints(t, "=1.0.0")).
-		withDependency(idep2.Name, getConstraints(t, "=1.0.0")).
+		withDependency("intermediate-dep-1", getConstraints(t, "=1.0.0")).
+		withDependency("intermediate-dep-2", getConstraints(t, "=1.0.0")).
 		withVersion(getSemver(t, "2.0.0")).
-		withDependency(idep1.Name, getConstraints(t, "=2.0.0")).
-		withDependency(idep2.Name, getConstraints(t, "=1.0.0")).
+		withDependency("intermediate-dep-1", getConstraints(t, "=2.0.0")).
+		withDependency("intermediate-dep-2", getConstraints(t, "=1.0.0")).
 		get()
 
-	solverset := newApplicationSet().withApplication(app.Name, nil).get()
+	solverset := newApplicationSet().withApplication("app", nil).get()
 
-	index := newPackageIndex(app, dep, idep1, idep2)
+	index, err := solver.NewApplicationIndex(app, dep, idep1, idep2)
+	require.NoError(t, err)
 
-	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -333,18 +347,19 @@ func TestProvisionSingleWithChoice(t *testing.T) {
 func TestProvisionSingleWithChoiceAndConditionalDependency(t *testing.T) {
 	t.Parallel()
 
-	dep := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).get()
-	app := newApplicationBuilder().
+	dep := newApplicationBuilder("dep").withVersion(getSemver(t, "1.0.0")).get()
+	app := newApplicationBuilder("app").
 		withVersion(getSemver(t, "1.0.0")).
-		withDependency(dep.Name, getConstraints(t, "=1.0.0")).
+		withDependency("dep", getConstraints(t, "=1.0.0")).
 		withVersion(getSemver(t, "2.0.0")).
 		get()
 
-	solverset := newApplicationSet().withApplication(app.Name, nil).get()
+	solverset := newApplicationSet().withApplication("app", nil).get()
 
-	index := newPackageIndex(app, dep)
+	index, err := solver.NewApplicationIndex(app, dep)
+	require.NoError(t, err)
 
-	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -353,23 +368,21 @@ func TestProvisionSingleWithChoiceAndConditionalDependency(t *testing.T) {
 func TestProvisionSingleWithRecommendation(t *testing.T) {
 	t.Parallel()
 
-	app := newApplicationBuilder().withVersion(getSemver(t, "1.0.0")).get()
-
-	rec := newApplicationBuilder().
+	app := newApplicationBuilder("app").
 		withVersion(getSemver(t, "1.0.0")).
-		withDependency(app.Name, getConstraints(t, "=1.0.0")).
+		withRecommendation("reccomendation").
 		get()
 
-	app.Spec.Versions[0].Recommends = []unikornv1core.HelmApplicationRecommendation{
-		{
-			Name: rec.Name,
-		},
-	}
+	rec := newApplicationBuilder("reccomendation").
+		withVersion(getSemver(t, "1.0.0")).
+		withDependency("app", getConstraints(t, "=1.0.0")).
+		get()
 
-	solverset := newApplicationSet().withApplication(app.Name, nil).get()
+	solverset := newApplicationSet().withApplication("app", nil).get()
 
-	index := newPackageIndex(app, rec)
+	index, err := solver.NewApplicationIndex(app, rec)
+	require.NoError(t, err)
 
-	_, err := solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
 	require.NoError(t, err)
 }

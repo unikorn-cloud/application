@@ -122,7 +122,7 @@ func (p *Provisioner) getKubernetesClient(ctx context.Context, traceName string)
 	return ctx, client, nil
 }
 
-func getApplications(ctx context.Context, cli client.Client, namespace string) (map[string]*unikornv1core.HelmApplication, error) {
+func getApplications(ctx context.Context, cli client.Client, namespace string) (solver.ApplicationIndex, error) {
 	var applications unikornv1core.HelmApplicationList
 
 	options := &client.ListOptions{
@@ -133,17 +133,17 @@ func getApplications(ctx context.Context, cli client.Client, namespace string) (
 		return nil, err
 	}
 
-	applicationMap := map[string]*unikornv1core.HelmApplication{}
+	l := make([]*unikornv1core.HelmApplication, len(applications.Items))
 
-	for i, application := range applications.Items {
-		applicationMap[application.Name] = &applications.Items[i]
+	for i := range applications.Items {
+		l[i] = &applications.Items[i]
 	}
 
-	return applicationMap, nil
+	return solver.NewApplicationIndex(l...)
 }
 
 type schedulerVistor struct {
-	applications map[string]*unikornv1core.HelmApplication
+	applications solver.ApplicationIndex
 	appVersions  map[string]solver.AppVersion
 	dependers    map[string][]string
 	seen         sat.Set[string]
@@ -151,12 +151,12 @@ type schedulerVistor struct {
 }
 
 func (v *schedulerVistor) Visit(av solver.AppVersion, enqueue func(solver.AppVersion)) error {
-	v.seen.Add(av.ID)
+	v.seen.Add(av.Name)
 
 	v.order = append(v.order, av)
 
 	// Doea anyone depdend on me?
-	if dependers, ok := v.dependers[av.ID]; ok {
+	if dependers, ok := v.dependers[av.Name]; ok {
 		for _, depender := range dependers {
 			dependerAppVersion := v.appVersions[depender]
 
@@ -202,9 +202,9 @@ func Schedule(ctx context.Context, client client.Client, namespace string, solut
 	var roots []solver.AppVersion
 
 	for av := range solution.All() {
-		appVersions[av.ID] = av
+		appVersions[av.Name] = av
 
-		application := applications[av.ID]
+		application := applications[av.Name]
 
 		version, err := application.GetVersion(av.Version)
 		if err != nil {
@@ -218,7 +218,7 @@ func Schedule(ctx context.Context, client client.Client, namespace string, solut
 		}
 
 		for _, dep := range version.Dependencies {
-			dependers[dep.Name] = append(dependers[dep.Name], av.ID)
+			dependers[dep.Name] = append(dependers[dep.Name], av.Name)
 		}
 	}
 

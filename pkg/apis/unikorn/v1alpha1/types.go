@@ -19,7 +19,6 @@ package v1alpha1
 import (
 	unikornv1core "github.com/unikorn-cloud/core/pkg/apis/unikorn/v1alpha1"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -56,8 +55,8 @@ type ApplicationSetSpec struct {
 }
 
 type ApplicationSpec struct {
-	// Application is a reference to the typed application.
-	Application corev1.TypedObjectReference `json:"application"`
+	// Name is the application name.
+	Name string `json:"name"`
 	// Version is the version of the application.
 	Version *unikornv1core.SemanticVersion `json:"version,omitempty"`
 }

@@ -73,7 +73,7 @@ func (c *ApplicationSet) ResourceLabels() (labels.Set, error) {
 	}
 
 	labels := labels.Set{
-		constants.KindLabel:              "unikorn-cloud.org/applicationset",
+		constants.KindLabel:              "applicationset",
 		constants.OrganizationLabel:      organization,
 		constants.ProjectLabel:           project,
 		constants.KubernetesClusterLabel: cluster,

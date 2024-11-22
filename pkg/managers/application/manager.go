@@ -23,6 +23,7 @@ import (
 	coreclient "github.com/unikorn-cloud/core/pkg/client"
 	coremanager "github.com/unikorn-cloud/core/pkg/manager"
 	"github.com/unikorn-cloud/core/pkg/manager/options"
+	kubernetesunikornv1 "github.com/unikorn-cloud/kubernetes/pkg/apis/unikorn/v1alpha1"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -75,5 +76,6 @@ func (*Factory) Upgrade(_ client.Client) error {
 func (*Factory) Schemes() []coreclient.SchemeAdder {
 	return []coreclient.SchemeAdder{
 		unikornv1.AddToScheme,
+		kubernetesunikornv1.AddToScheme,
 	}
 }

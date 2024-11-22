@@ -27,6 +27,7 @@ import (
 	unikornv1 "github.com/unikorn-cloud/application/pkg/apis/unikorn/v1alpha1"
 	"github.com/unikorn-cloud/application/pkg/solver"
 	unikornv1core "github.com/unikorn-cloud/core/pkg/apis/unikorn/v1alpha1"
+	"github.com/unikorn-cloud/core/pkg/cd"
 	coreclient "github.com/unikorn-cloud/core/pkg/client"
 	"github.com/unikorn-cloud/core/pkg/manager"
 	"github.com/unikorn-cloud/core/pkg/provisioners"
@@ -229,6 +230,56 @@ func (p *Provisioner) getClusterManager(ctx context.Context, cluster *unikornv1k
 	return &clusterManager, nil
 }
 
+// removeOrphanedApplications does exactly that, we can only see what the user currently
+// wants installed, so we need to inspect what the CD driver can see on the system and
+// manually prune anything that's installed by shouldn't be.
+func (p *Provisioner) removeOrphanedApplications(ctx context.Context, required sat.Set[solver.AppVersion]) error {
+	// List all applications that exist for this resource.
+	labels, err := p.applicationset.ResourceLabels()
+	if err != nil {
+		return err
+	}
+
+	id := &cd.ResourceIdentifier{
+		Labels: make([]cd.ResourceIdentifierLabel, 0, len(labels)),
+	}
+
+	for k, v := range labels {
+		id.Labels = append(id.Labels, cd.ResourceIdentifierLabel{
+			Name:  k,
+			Value: v,
+		})
+	}
+
+	applications, err := cd.FromContext(ctx).ListHelmApplications(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// Perform a boolean subtraction to find the ones that are orhpaned.
+	// Use only the name, ignore versions as that whittles down to an upgrade
+	// or downgrade.
+	for id := range applications {
+		found := false
+
+		for r := range required.All() {
+			if id.Name == r.Name {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			if err := cd.FromContext(ctx).DeleteHelmApplication(ctx, id, true); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 // getProvisioner creates the provisioner.
 func (p *Provisioner) getProvisioner(ctx context.Context) (provisioners.Provisioner, error) {
 	cli, err := coreclient.ProvisionerClientFromContext(ctx)
@@ -248,6 +299,10 @@ func (p *Provisioner) getProvisioner(ctx context.Context) (provisioners.Provisio
 
 	solution, err := solver.SolveApplicationSet(ctx, index, &p.applicationset)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := p.removeOrphanedApplications(ctx, solution); err != nil {
 		return nil, err
 	}
 

@@ -9,15 +9,26 @@ rules:
 - apiGroups:
   - unikorn-cloud.org
   resources:
-  - applications
+  - helmapplications
   verbs:
   - list
   - watch
+- apiGroups:
+  - application.unikorn-cloud.org
+  resources:
+  - applicationsets
+  verbs:
+  - list
+  - watch
+  - create
+  - update
+  - delete
 # Find project namespaces
 - apiGroups:
   - ""
   resources:
   - namespaces
+  - secrets
   verbs:
   - list
   - watch

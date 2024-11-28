@@ -69,12 +69,6 @@ components:
       type: array
       items:
         $ref: '#/components/schemas/applicationVersion'
-    applicationTags:
-      description: A set of tags for filtering applications.
-      type: array
-      items:
-        description: An application tag.
-        type: string
     applicationDependency:
       description: An application dependency.
       type: object
@@ -120,8 +114,6 @@ components:
           format: byte
         versions:
           $ref: '#/components/schemas/applicationVersions'
-        tags:
-          $ref: '#/components/schemas/applicationTags'
     applicationRead:
       type: object
       required:

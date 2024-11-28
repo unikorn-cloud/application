@@ -11,9 +11,9 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spjmurray/go-sat v0.3.1
 	github.com/stretchr/testify v1.9.0
-	github.com/unikorn-cloud/core v0.1.83
-	github.com/unikorn-cloud/identity v0.2.44
-	github.com/unikorn-cloud/kubernetes v0.2.47
+	github.com/unikorn-cloud/core v0.1.86
+	github.com/unikorn-cloud/identity v0.2.45
+	github.com/unikorn-cloud/kubernetes v0.2.51
 	go.opentelemetry.io/otel/sdk v1.31.0
 	k8s.io/api v0.31.1
 	k8s.io/apimachinery v0.31.1
@@ -63,7 +63,7 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.60.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
-	github.com/unikorn-cloud/region v0.1.45 // indirect
+	github.com/unikorn-cloud/region v0.1.46 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/otel v1.31.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.31.0 // indirect

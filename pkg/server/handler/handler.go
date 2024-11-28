@@ -68,7 +68,7 @@ func (h *Handler) GetApiV1OrganizationsOrganizationIDProjectsProjectIDApplicatio
 		return
 	}
 
-	result, err := application.NewClient(h.client).List(r.Context())
+	result, err := application.NewClient(h.client, h.namespace).List(r.Context())
 	if err != nil {
 		errors.HandleError(w, r, err)
 		return

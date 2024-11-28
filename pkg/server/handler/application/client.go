@@ -33,12 +33,15 @@ import (
 type Client struct {
 	// client allows Kubernetes API access.
 	client client.Client
+	// namespace is the namespace we are running in to scope application access.
+	namespace string
 }
 
 // NewClient returns a new client with required parameters.
-func NewClient(client client.Client) *Client {
+func NewClient(client client.Client, namespace string) *Client {
 	return &Client{
-		client: client,
+		client:    client,
+		namespace: namespace,
 	}
 }
 
@@ -78,13 +81,12 @@ func convert(in *unikornv1core.HelmApplication) *openapi.ApplicationRead {
 	}
 
 	out := &openapi.ApplicationRead{
-		Metadata: conversion.ResourceReadMetadata(in, coreopenapi.ResourceProvisioningStatusProvisioned),
+		Metadata: conversion.ResourceReadMetadata(in, in.Spec.Tags, coreopenapi.ResourceProvisioningStatusProvisioned),
 		Spec: openapi.ApplicationSpec{
 			Documentation: *in.Spec.Documentation,
 			License:       *in.Spec.License,
 			Icon:          in.Spec.Icon,
 			Versions:      versions,
-			Tags:          &in.Spec.Tags,
 		},
 	}
 
@@ -102,9 +104,13 @@ func convertList(in []unikornv1core.HelmApplication) []*openapi.ApplicationRead 
 }
 
 func (c *Client) List(ctx context.Context) ([]*openapi.ApplicationRead, error) {
+	options := &client.ListOptions{
+		Namespace: c.namespace,
+	}
+
 	result := &unikornv1core.HelmApplicationList{}
 
-	if err := c.client.List(ctx, result); err != nil {
+	if err := c.client.List(ctx, result, options); err != nil {
 		return nil, errors.OAuth2ServerError("failed to list applications").WithError(err)
 	}
 

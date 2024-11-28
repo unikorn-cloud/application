@@ -51,6 +51,8 @@ type ApplicationSet struct {
 type ApplicationSetSpec struct {
 	// Pause, if true, will inhibit reconciliation.
 	Pause bool `json:"pause,omitempty"`
+	// Tags are aribrary user data.
+	Tags unikornv1core.TagList `json:"tags,omitempty"`
 	// Applications is a list of user requested applications to install.
 	Applications []ApplicationSpec `json:"applications,omitempty"`
 }

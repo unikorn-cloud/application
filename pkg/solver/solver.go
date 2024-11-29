@@ -21,7 +21,9 @@ import (
 	"errors"
 	"fmt"
 
-	sat "github.com/spjmurray/go-sat"
+	"github.com/spjmurray/go-sat/pkg/cdcl"
+	"github.com/spjmurray/go-util/pkg/queue"
+	"github.com/spjmurray/go-util/pkg/set"
 
 	unikornv1 "github.com/unikorn-cloud/application/pkg/apis/unikorn/v1alpha1"
 	unikornv1core "github.com/unikorn-cloud/core/pkg/apis/unikorn/v1alpha1"
@@ -38,25 +40,6 @@ var (
 	ErrConstraint = errors.New("constraint error")
 )
 
-type Queue[T any] struct {
-	items []T
-}
-
-func (q *Queue[T]) Empty() bool {
-	return len(q.items) == 0
-}
-
-func (q *Queue[T]) Push(value T) {
-	q.items = append(q.items, value)
-}
-
-func (q *Queue[T]) Pop() T {
-	value := q.items[0]
-	q.items = q.items[1:]
-
-	return value
-}
-
 // GraphVisitor is used to visit a node in the graph.
 type GraphVisitor[T comparable] interface {
 	// Visit is called when a new node is encountered, it accepts
@@ -65,13 +48,14 @@ type GraphVisitor[T comparable] interface {
 }
 
 type GraphWalker[T comparable] struct {
-	queue Queue[T]
-	seen  sat.Set[T]
+	queue *queue.Queue[T]
+	seen  set.Set[T]
 }
 
 func NewGraphWalker[T comparable]() *GraphWalker[T] {
 	return &GraphWalker[T]{
-		seen: sat.Set[T]{},
+		queue: queue.New[T](),
+		seen:  set.New[T](),
 	}
 }
 
@@ -81,9 +65,12 @@ func (g *GraphWalker[T]) Enqueue(t T) {
 
 func (g *GraphWalker[T]) Walk(visitor GraphVisitor[T]) error {
 	for !g.queue.Empty() {
-		t := g.queue.Pop()
+		t, err := g.queue.Pop()
+		if err != nil {
+			return err
+		}
 
-		if g.seen.Has(t) {
+		if g.seen.Contains(t) {
 			continue
 		}
 
@@ -143,7 +130,7 @@ func (i ApplicationIndex) Get(name string) (*unikornv1core.HelmApplication, erro
 
 type solverVisitor struct {
 	applications ApplicationIndex
-	model        *sat.Model[AppVersion]
+	model        *cdcl.Model[AppVersion]
 }
 
 //nolint:cyclop
@@ -217,12 +204,12 @@ func (v *solverVisitor) Visit(name string, enqueue func(string)) error {
 // then we have a conflict, and have to backtrack and try again with another version.
 // Unlike typical SAT solver problems, choosing a different version can have the fun
 // effect of changing its dependencies!
-func SolveApplicationSet(ctx context.Context, applications ApplicationIndex, applicationset *unikornv1.ApplicationSet) (sat.Set[AppVersion], error) {
+func SolveApplicationSet(ctx context.Context, applications ApplicationIndex, applicationset *unikornv1.ApplicationSet) (set.Set[AppVersion], error) {
 	// We're going to do an exhaustive walk of the dependency graph gathering
 	// all application/version tuples as variables, and also create any clauses along the way.
 	graph := NewGraphWalker[string]()
 
-	model := sat.NewModel[AppVersion]()
+	model := cdcl.NewModel[AppVersion]()
 
 	// Populate the work queue with any application IDs that are requested by the
 	// user and any clauses relevant to the solver.
@@ -266,12 +253,12 @@ func SolveApplicationSet(ctx context.Context, applications ApplicationIndex, app
 	}
 
 	// Solve the problem.
-	if err := sat.NewCDCLSolver().Solve(model, sat.DefaultChooser); err != nil {
+	if err := cdcl.New().Solve(model, cdcl.DefaultChooser); err != nil {
 		return nil, err
 	}
 
 	// Get the result.
-	result := sat.Set[AppVersion]{}
+	result := set.Set[AppVersion]{}
 
 	for av, b := range model.Variables() {
 		if b.Value() {

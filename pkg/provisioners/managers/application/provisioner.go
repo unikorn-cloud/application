@@ -22,7 +22,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/pflag"
-	sat "github.com/spjmurray/go-sat"
+	"github.com/spjmurray/go-util/pkg/set"
 
 	unikornv1 "github.com/unikorn-cloud/application/pkg/apis/unikorn/v1alpha1"
 	"github.com/unikorn-cloud/application/pkg/solver"
@@ -115,7 +115,7 @@ type schedulerVistor struct {
 	applications solver.ApplicationIndex
 	appVersions  map[string]solver.AppVersion
 	dependers    map[string][]string
-	seen         sat.Set[string]
+	seen         set.Set[string]
 	order        []solver.AppVersion
 }
 
@@ -140,7 +140,7 @@ func (v *schedulerVistor) Visit(av solver.AppVersion, enqueue func(solver.AppVer
 			satisfied := true
 
 			for _, dep := range version.Dependencies {
-				if !v.seen.Has(dep.Name) {
+				if !v.seen.Contains(dep.Name) {
 					satisfied = false
 
 					break
@@ -157,7 +157,7 @@ func (v *schedulerVistor) Visit(av solver.AppVersion, enqueue func(solver.AppVer
 }
 
 // Schedule takes a SAT solution and creates an installation order for the applications.
-func Schedule(ctx context.Context, applications solver.ApplicationIndex, solution sat.Set[solver.AppVersion]) ([]solver.AppVersion, error) {
+func Schedule(ctx context.Context, applications solver.ApplicationIndex, solution set.Set[solver.AppVersion]) ([]solver.AppVersion, error) {
 	// Okay, we need to build up a reverse map of dependencies and also
 	// record the packages with no dependencies as those will be installed
 	// first.
@@ -199,7 +199,7 @@ func Schedule(ctx context.Context, applications solver.ApplicationIndex, solutio
 		applications: applications,
 		appVersions:  appVersions,
 		dependers:    dependers,
-		seen:         sat.Set[string]{},
+		seen:         set.Set[string]{},
 	}
 
 	if err := graph.Walk(visitor); err != nil {
@@ -233,7 +233,7 @@ func (p *Provisioner) getClusterManager(ctx context.Context, cluster *unikornv1k
 // removeOrphanedApplications does exactly that, we can only see what the user currently
 // wants installed, so we need to inspect what the CD driver can see on the system and
 // manually prune anything that's installed by shouldn't be.
-func (p *Provisioner) removeOrphanedApplications(ctx context.Context, required sat.Set[solver.AppVersion]) error {
+func (p *Provisioner) removeOrphanedApplications(ctx context.Context, required set.Set[solver.AppVersion]) error {
 	// List all applications that exist for this resource.
 	labels, err := p.applicationset.ResourceLabels()
 	if err != nil {

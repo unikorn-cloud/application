@@ -22,7 +22,7 @@ import (
 	"fmt"
 
 	"github.com/spjmurray/go-sat/pkg/cdcl"
-	"github.com/spjmurray/go-util/pkg/queue"
+	"github.com/spjmurray/go-util/pkg/graph"
 	"github.com/spjmurray/go-util/pkg/set"
 
 	unikornv1 "github.com/unikorn-cloud/application/pkg/apis/unikorn/v1alpha1"
@@ -39,50 +39,6 @@ var (
 
 	ErrConstraint = errors.New("constraint error")
 )
-
-// GraphVisitor is used to visit a node in the graph.
-type GraphVisitor[T comparable] interface {
-	// Visit is called when a new node is encountered, it accepts
-	// the node itself and an enqueue function.
-	Visit(node T, enqueue func(T)) error
-}
-
-type GraphWalker[T comparable] struct {
-	queue *queue.Queue[T]
-	seen  set.Set[T]
-}
-
-func NewGraphWalker[T comparable]() *GraphWalker[T] {
-	return &GraphWalker[T]{
-		queue: queue.New[T](),
-		seen:  set.New[T](),
-	}
-}
-
-func (g *GraphWalker[T]) Enqueue(t T) {
-	g.queue.Push(t)
-}
-
-func (g *GraphWalker[T]) Walk(visitor GraphVisitor[T]) error {
-	for !g.queue.Empty() {
-		t, err := g.queue.Pop()
-		if err != nil {
-			return err
-		}
-
-		if g.seen.Contains(t) {
-			continue
-		}
-
-		g.seen.Add(t)
-
-		if err := visitor.Visit(t, g.Enqueue); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
 
 // AppVersion wraps up applicationID and version tuples in a comparable
 // and easy to use form when interacting with the SAT solver.
@@ -207,7 +163,7 @@ func (v *solverVisitor) Visit(name string, enqueue func(string)) error {
 func SolveApplicationSet(ctx context.Context, applications ApplicationIndex, applicationset *unikornv1.ApplicationSet) (set.Set[AppVersion], error) {
 	// We're going to do an exhaustive walk of the dependency graph gathering
 	// all application/version tuples as variables, and also create any clauses along the way.
-	graph := NewGraphWalker[string]()
+	graph := graph.NewWalker[string]()
 
 	model := cdcl.NewModel[AppVersion]()
 
@@ -219,7 +175,7 @@ func SolveApplicationSet(ctx context.Context, applications ApplicationIndex, app
 			return nil, err
 		}
 
-		graph.Enqueue(ref.Name)
+		graph.Push(ref.Name)
 
 		// Add a unit clause if an application version is specified.
 		if ref.Version != nil {
@@ -248,7 +204,7 @@ func SolveApplicationSet(ctx context.Context, applications ApplicationIndex, app
 		model:        model,
 	}
 
-	if err := graph.Walk(visitor); err != nil {
+	if err := graph.Visit(visitor); err != nil {
 		return nil, err
 	}
 

@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/pflag"
+	"github.com/spjmurray/go-util/pkg/graph"
 	"github.com/spjmurray/go-util/pkg/set"
 
 	unikornv1 "github.com/unikorn-cloud/application/pkg/apis/unikorn/v1alpha1"
@@ -189,10 +190,10 @@ func Schedule(ctx context.Context, applications solver.ApplicationIndex, solutio
 
 	// Then we need to walk the graph from the roots to the leaves, but only
 	// processing nodes once all their dependencies are satisfied.
-	graph := solver.NewGraphWalker[solver.AppVersion]()
+	graph := graph.NewWalker[solver.AppVersion]()
 
 	for _, root := range roots {
-		graph.Enqueue(root)
+		graph.Push(root)
 	}
 
 	visitor := &schedulerVistor{
@@ -202,7 +203,7 @@ func Schedule(ctx context.Context, applications solver.ApplicationIndex, solutio
 		seen:         set.Set[string]{},
 	}
 
-	if err := graph.Walk(visitor); err != nil {
+	if err := graph.Visit(visitor); err != nil {
 		return nil, err
 	}
 

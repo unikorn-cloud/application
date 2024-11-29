@@ -126,10 +126,10 @@ github.com/rogpeppe/go-internal v1.13.1 h1:KvO1DLK/DRN07sQ1LQKScxyZJuNnedQ5/wKSR
 github.com/rogpeppe/go-internal v1.13.1/go.mod h1:uMEvuHeurkdAXX61udpOXGD/AzZDWNMNyH2VO9fmH0o=
 github.com/spf13/pflag v1.0.5 h1:iy+VFUOCP1a+8yFto/drg2CJ5u0yRoB7fZw3DKv/JXA=
 github.com/spf13/pflag v1.0.5/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
-github.com/spjmurray/go-sat v0.4.0 h1:BFD20Ot3wKN4Rf26vVOjfosda2MJW/uJ6GrDruKiTdU=
-github.com/spjmurray/go-sat v0.4.0/go.mod h1:DCU2g/lAREdvbec/Szz+Sqcg4NiO1RxzAP+nJHExoq8=
-github.com/spjmurray/go-util v0.1.2 h1:dZ9ZGus+P95kcFMDY+aR/0SAj+c3WMC8ZAT/CHLa9UM=
-github.com/spjmurray/go-util v0.1.2/go.mod h1:fARcBeaHio/6h9H7Ht+egZPBZMNxEwxmHC1vyjBtPbs=
+github.com/spjmurray/go-sat v0.4.1 h1:V5yCggtyOJJA8j9tMhjNXTKi+p8aRsUdiu4Jt52GM9w=
+github.com/spjmurray/go-sat v0.4.1/go.mod h1:KnOUTnJXZ5TmUjjFyDtGSKI/BlCMMIkWtSrX4ADAKlI=
+github.com/spjmurray/go-util v0.1.3 h1:EJxYEH6FnKJwgRWw8sSEyOreqU07lI2V8+KZnCSsLoE=
+github.com/spjmurray/go-util v0.1.3/go.mod h1:fARcBeaHio/6h9H7Ht+egZPBZMNxEwxmHC1vyjBtPbs=
 github.com/spkg/bom v0.0.0-20160624110644-59b7046e48ad/go.mod h1:qLr4V1qq6nMqFKkMo8ZTx3f+BZEkzsRUY10Xsm2mwU0=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=

@@ -9,8 +9,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/oapi-codegen/runtime v1.1.1
 	github.com/spf13/pflag v1.0.5
-	github.com/spjmurray/go-sat v0.4.0
-	github.com/spjmurray/go-util v0.1.2
+	github.com/spjmurray/go-sat v0.4.1
+	github.com/spjmurray/go-util v0.1.3
 	github.com/stretchr/testify v1.10.0
 	github.com/unikorn-cloud/core v0.1.86
 	github.com/unikorn-cloud/identity v0.2.45

@@ -1,0 +1,12 @@
+apiVersion: application.unikorn-cloud.org/v1alpha1
+kind: ApplicationSet
+metadata:
+  namespace: project-ngjlg
+  name: f714889a-7972-4156-af6a-9d132ec4caf5
+  labels:
+      unikorn-cloud.org/organization: e9711b20-625f-4b7a-84ee-2fb5ce66389e
+      unikorn-cloud.org/project: ede41293-dd82-4449-b804-2dd8b9d2f42f
+      unikorn-cloud.org/kubernetescluster: f714889a-7972-4156-af6a-9d132ec4caf5
+spec:
+  applications:
+  - name: longhorn

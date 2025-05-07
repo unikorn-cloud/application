@@ -17,7 +17,6 @@ limitations under the License.
 package solver_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
@@ -192,7 +191,7 @@ func TestProvisionSingle(t *testing.T) {
 	index, err := solver.NewApplicationIndex(app)
 	require.NoError(t, err)
 
-	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(t.Context(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -207,7 +206,7 @@ func TestProvisionSingleMostRecent(t *testing.T) {
 	index, err := solver.NewApplicationIndex(app)
 	require.NoError(t, err)
 
-	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(t.Context(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -221,7 +220,7 @@ func TestProvisionSingleNoMatch(t *testing.T) {
 	index, err := solver.NewApplicationIndex(app)
 	require.NoError(t, err)
 
-	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(t.Context(), index, solverset)
 	require.Error(t, err)
 }
 
@@ -236,7 +235,7 @@ func TestProvisionSingleWithDependency(t *testing.T) {
 	index, err := solver.NewApplicationIndex(app, dep)
 	require.NoError(t, err)
 
-	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(t.Context(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -251,7 +250,7 @@ func TestProvisionSingleWithDependencyNoMatch(t *testing.T) {
 	index, err := solver.NewApplicationIndex(app, dep)
 	require.NoError(t, err)
 
-	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(t.Context(), index, solverset)
 	require.Error(t, err)
 }
 
@@ -272,7 +271,7 @@ func TestProvisionMultipleWithDependencyConflict(t *testing.T) {
 	index, err := solver.NewApplicationIndex(app1, app2, dep)
 	require.NoError(t, err)
 
-	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(t.Context(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -297,7 +296,7 @@ func TestProvisionSingleWithConflictingTransitveDependency(t *testing.T) {
 	index, err := solver.NewApplicationIndex(app, dep, intermediateDep)
 	require.NoError(t, err)
 
-	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(t.Context(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -337,7 +336,7 @@ func TestProvisionSingleWithChoice(t *testing.T) {
 	index, err := solver.NewApplicationIndex(app, dep, idep1, idep2)
 	require.NoError(t, err)
 
-	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(t.Context(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -359,7 +358,7 @@ func TestProvisionSingleWithChoiceAndConditionalDependency(t *testing.T) {
 	index, err := solver.NewApplicationIndex(app, dep)
 	require.NoError(t, err)
 
-	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(t.Context(), index, solverset)
 	require.NoError(t, err)
 }
 
@@ -383,6 +382,6 @@ func TestProvisionSingleWithRecommendation(t *testing.T) {
 	index, err := solver.NewApplicationIndex(app, rec)
 	require.NoError(t, err)
 
-	_, err = solver.SolveApplicationSet(context.Background(), index, solverset)
+	_, err = solver.SolveApplicationSet(t.Context(), index, solverset)
 	require.NoError(t, err)
 }

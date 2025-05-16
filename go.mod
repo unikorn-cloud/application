@@ -12,12 +12,12 @@ require (
 	github.com/spjmurray/go-sat v0.4.1
 	github.com/spjmurray/go-util v0.1.3
 	github.com/stretchr/testify v1.10.0
-	github.com/unikorn-cloud/core v0.1.95
-	github.com/unikorn-cloud/identity v0.2.63
-	github.com/unikorn-cloud/kubernetes v0.2.64
+	github.com/unikorn-cloud/core v1.0.0
+	github.com/unikorn-cloud/identity v1.0.0
+	github.com/unikorn-cloud/kubernetes v1.0.2
 	go.opentelemetry.io/otel/sdk v1.35.0
-	k8s.io/api v0.33.0
-	k8s.io/apimachinery v0.33.0
+	k8s.io/api v0.33.1
+	k8s.io/apimachinery v0.33.1
 	sigs.k8s.io/controller-runtime v0.20.4
 )
 
@@ -59,9 +59,9 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_golang v1.22.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v0.63.0 // indirect
+	github.com/prometheus/common v0.64.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
-	github.com/unikorn-cloud/region v0.1.54 // indirect
+	github.com/unikorn-cloud/region v1.0.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/otel v1.35.0 // indirect
@@ -80,14 +80,14 @@ require (
 	golang.org/x/text v0.25.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250505200425-f936aa4a68b2 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250505200425-f936aa4a68b2 // indirect
-	google.golang.org/grpc v1.72.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250512202823-5a2f75b736a9 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250512202823-5a2f75b736a9 // indirect
+	google.golang.org/grpc v1.72.1 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/client-go v0.33.0 // indirect
+	k8s.io/client-go v0.33.1 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	k8s.io/utils v0.0.0-20250502105355-0f33e8f1c979 // indirect
